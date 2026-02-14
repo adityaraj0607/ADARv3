@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>ADAR — Advanced Driver Attention & Response</title>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&family=Rajdhani:wght@300;400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet"/>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.4/socket.io.min.js"></script>
+    <style>
+        /* ═══════ RESET & BASE ═══════ */
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Rajdhani', sans-serif;
+            background: #0a0c14;
+            color: #c5ccd6;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #1a2235; border-radius: 99px; }
+
+        /* ═══════ COLORS ═══════ */
+        :root {
+            --cyan: #00e5ff;
+            --orange: #ff9800;
+            --amber: #ffb300;
+            --green: #00e676;
+            --red: #ff1744;
+            --panel-bg: #0d1117;
+            --panel-border: #1a2235;
+            --text-dim: #5a6577;
+            --text-mid: #8892a0;
+        }
+
+        /* ═══════ HEADER ═══════ */
+        .header {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 10px 20px;
+            background: linear-gradient(180deg, #0d1117 0%, #0a0c14 100%);
+            border-bottom: 1px solid var(--panel-border);
+        }
+        .header-left { display: flex; align-items: center; gap: 14px; }
+        .logo-dot {
+            width: 32px; height: 32px; border-radius: 50%;
+            background: radial-gradient(circle, var(--orange) 30%, #cc7000 100%);
+            box-shadow: 0 0 16px rgba(255,152,0,0.5);
+        }
+        .logo-text {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 22px; font-weight: 700;
+            color: var(--orange);
+            letter-spacing: 6px;
+        }
+        .logo-sub {
+            font-family: 'Rajdhani', sans-serif;
+            font-size: 11px; color: var(--text-dim);
+            letter-spacing: 5px; text-transform: uppercase;
+            margin-left: 16px;
+        }
+        .header-center { text-align: center; }
+        .status-badge {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 18px; font-weight: 700;
+            letter-spacing: 4px;
+            display: flex; align-items: center; gap: 10px;
+        }
+        .status-dot {
+            width: 12px; height: 12px; border-radius: 50%;
+        }
+        .header-right { display: flex; align-items: center; gap: 20px; }
+        .clock {
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 22px; color: var(--text-mid);
+            letter-spacing: 3px;
+        }
+        .fps-box {
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 11px; color: var(--cyan);
+            text-align: right; line-height: 1.3;
+        }
+        .fps-num { font-size: 24px; font-weight: 700; }
+
+        /* ═══════ MAIN GRID ═══════ */
+        .main-grid {
+            display: grid;
+            grid-template-columns: 1fr 340px;
+            grid-template-rows: 1fr auto;
+            gap: 0;
+            height: calc(100vh - 56px);
+            overflow: hidden;
+        }
+
+        /* ═══════ PANELS ═══════ */
+        .panel {
+            background: var(--panel-bg);
+            border: 1px solid var(--panel-border);
+            position: relative;
+        }
+        .panel-header {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 8px 14px;
+            border-bottom: 1px solid var(--panel-border);
+        }
+        .panel-title {
+            font-family: 'Rajdhani', sans-serif;
+            font-size: 12px; font-weight: 600;
+            color: var(--text-dim);
+            letter-spacing: 3px; text-transform: uppercase;
+            display: flex; align-items: center; gap: 8px;
+        }
+        .panel-title .dot {
+            width: 7px; height: 7px; border-radius: 50%;
+            background: var(--orange);
+            box-shadow: 0 0 8px rgba(255,152,0,0.5);
+        }
+        .panel-label {
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 10px; color: var(--text-dim);
+            letter-spacing: 2px;
+        }
+
+        /* ═══════ LIVE FEED ═══════ */
+        .feed-area {
+            position: relative;
+            background: #000;
+            width: 100%;
+            flex: 1;
+            min-height: 0;
+            overflow: hidden;
+        }
+        .panel-feed {
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+            overflow: hidden;
+        }
+        .feed-area img {
+            width: 100%; height: 100%;
+            object-fit: contain;
+            display: block;
+        }
+        /* Corner brackets */
+        .corner { position: absolute; width: 24px; height: 24px; }
+        .corner-tl { top: 8px; left: 8px; border-top: 2px solid var(--cyan); border-left: 2px solid var(--cyan); }
+        .corner-tr { top: 8px; right: 8px; border-top: 2px solid var(--cyan); border-right: 2px solid var(--cyan); }
+        .corner-bl { bottom: 8px; left: 8px; border-bottom: 2px solid var(--cyan); border-left: 2px solid var(--cyan); }
+        .corner-br { bottom: 8px; right: 8px; border-bottom: 2px solid var(--cyan); border-right: 2px solid var(--cyan); }
+        /* Scanning line */
+        .scan-line {
+            position: absolute; left: 0; right: 0;
+            height: 2px;
+            background: linear-gradient(90deg, transparent 0%, var(--orange) 30%, var(--orange) 70%, transparent 100%);
+            opacity: 0.6;
+            animation: scanMove 4s ease-in-out infinite;
+        }
+        @keyframes scanMove { 0%{top:10%;} 50%{top:85%;} 100%{top:10%;} }
+        .camera-label {
+            position: absolute; top: 8px; right: 40px;
+            font-family: 'Share Tech Mono', monospace; font-size: 10px;
+            color: var(--text-dim); letter-spacing: 2px;
+        }
+
+        /* ═══════ TELEMETRY PANEL ═══════ */
+        .panel-telemetry {
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+            overflow: hidden;
+        }
+        .telemetry-content { padding: 12px 14px; overflow-y: auto; flex: 1; min-height: 0; }
+
+        /* Attention Ring */
+        .ring-container {
+            display: flex; justify-content: center; align-items: center;
+            padding: 16px 0 10px;
+            position: relative;
+        }
+        .ring-svg { width: 180px; height: 180px; }
+        .ring-bg { fill: none; stroke: #1a2235; stroke-width: 8; }
+        .ring-fill {
+            fill: none; stroke: var(--cyan); stroke-width: 8;
+            stroke-linecap: round;
+            transform: rotate(-90deg); transform-origin: center;
+            transition: stroke-dashoffset 0.5s ease, stroke 0.3s ease;
+        }
+        .ring-value {
+            position: absolute;
+            font-family: 'Orbitron', sans-serif;
+            font-size: 48px; font-weight: 800;
+            color: var(--cyan);
+            text-shadow: 0 0 20px rgba(0,229,255,0.3);
+        }
+        .ring-label {
+            position: absolute; bottom: 18px;
+            font-family: 'Rajdhani', sans-serif;
+            font-size: 10px; color: var(--text-dim);
+            letter-spacing: 5px; text-transform: uppercase;
+        }
+
+        /* Metric cards */
+        .metric-row {
+            display: grid; grid-template-columns: 1fr 1fr 1fr;
+            gap: 8px; margin-top: 10px;
+        }
+        .metric-card {
+            background: #0a0c14;
+            border: 1px solid var(--panel-border);
+            border-radius: 6px;
+            padding: 10px 8px;
+            text-align: center;
+        }
+        .metric-val {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 22px; font-weight: 700;
+            color: #fff;
+        }
+        .metric-label {
+            font-size: 9px; color: var(--text-dim);
+            letter-spacing: 2px; text-transform: uppercase;
+            margin-top: 2px;
+        }
+
+        /* Detection badges */
+        .detection-row {
+            display: grid; grid-template-columns: 1fr 1fr;
+            gap: 8px; margin-top: 12px;
+        }
+        .detection-badge {
+            display: flex; align-items: center; gap: 10px;
+            background: #0a0c14;
+            border: 1px solid var(--panel-border);
+            border-radius: 6px;
+            padding: 10px 12px;
+        }
+        .detection-icon { font-size: 20px; }
+        .detection-info { flex: 1; }
+        .detection-name {
+            font-family: 'Rajdhani', sans-serif;
+            font-size: 12px; font-weight: 600;
+            color: var(--text-mid);
+            letter-spacing: 2px; text-transform: uppercase;
+        }
+        .detection-status {
+            font-size: 11px; display: flex; align-items: center; gap: 5px;
+        }
+        .detection-dot {
+            width: 7px; height: 7px; border-radius: 50%;
+            transition: background 0.3s ease;
+        }
+
+        /* ═══════ JARVIS PANEL ═══════ */
+        .jarvis-content {
+            padding: 10px 14px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        .jarvis-msg {
+            padding: 8px 12px;
+            border-left: 3px solid var(--panel-border);
+            margin-bottom: 8px;
+            font-size: 12px;
+            color: var(--text-mid);
+            animation: fadeIn 0.3s ease;
+        }
+        .jarvis-msg.danger { border-left-color: var(--red); background: rgba(255,23,68,0.05); }
+        .jarvis-msg.warning { border-left-color: var(--amber); background: rgba(255,179,0,0.05); }
+        .jarvis-msg.info { border-left-color: var(--cyan); }
+        .jarvis-time {
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 10px; color: var(--text-dim); margin-right: 10px;
+        }
+        @keyframes fadeIn { from{opacity:0;transform:translateY(-5px);} to{opacity:1;transform:translateY(0);} }
+
+        /* ═══════ SESSION STATS ═══════ */
+        .stats-content {
+            padding: 12px 14px;
+            display: grid; grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+        }
+        .stat-card {
+            background: #0a0c14;
+            border: 1px solid var(--panel-border);
+            border-radius: 6px;
+            padding: 12px 8px;
+            text-align: center;
+        }
+        .stat-val {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 26px; font-weight: 700;
+        }
+        .stat-label {
+            font-size: 9px; color: var(--text-dim);
+            letter-spacing: 2px; text-transform: uppercase;
+            margin-top: 4px;
+        }
+        .stat-card.alert .stat-val { color: var(--amber); }
+        .stat-card.danger .stat-val { color: var(--red); }
+
+        /* Latency footer */
+        .latency-bar {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 6px 14px;
+            border-top: 1px solid var(--panel-border);
+            font-size: 11px;
+        }
+        .latency-label {
+            font-family: 'Rajdhani', sans-serif;
+            color: var(--text-dim); letter-spacing: 3px; text-transform: uppercase;
+        }
+        .latency-val {
+            font-family: 'Share Tech Mono', monospace;
+            font-weight: 700;
+        }
+
+        /* ═══════ ANIMATIONS ═══════ */
+        @keyframes pulseDot { 0%,100%{opacity:1;box-shadow:0 0 4px;} 50%{opacity:0.4;box-shadow:0 0 12px;} }
+        .pulse-dot { animation: pulseDot 1.5s ease-in-out infinite; }
+    </style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!--  HEADER                                                 -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<header class="header">
+    <div class="header-left">
+        <div class="logo-dot"></div>
+        <span class="logo-text">ADAR</span>
+        <span class="logo-sub">Advanced Driver Attention & Response</span>
+    </div>
+    <div class="header-center">
+        <div id="statusBadge" class="status-badge" style="color:var(--green);">
+            <span id="statusDot" class="status-dot pulse-dot" style="background:var(--green);box-shadow:0 0 12px var(--green);"></span>
+            <span id="statusText">SAFE</span>
+        </div>
+    </div>
+    <div class="header-right">
+        <span id="clock" class="clock">00:00:00</span>
+        <div class="fps-box">
+            <div style="font-size:9px;color:var(--text-dim);letter-spacing:2px;">FPS</div>
+            <div id="fpsVal" class="fps-num">0</div>
+        </div>
+    </div>
+</header>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!--  MAIN GRID                                              -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div class="main-grid">
+
+    <!-- ── LIVE FEED ── -->
+    <div class="panel panel-feed" style="grid-row: 1 / 2; min-height: 0;">
+        <div class="panel-header">
+            <div class="panel-title"><span class="dot"></span> Live Feed</div>
+            <span class="panel-label">CAMERA 01</span>
+        </div>
+        <div class="feed-area">
+            <img id="videoFeed" src="/video_feed" alt="Live Feed"/>
+            <div class="corner corner-tl"></div>
+            <div class="corner corner-tr"></div>
+            <div class="corner corner-bl"></div>
+            <div class="corner corner-br"></div>
+            <div class="scan-line"></div>
+            <span class="camera-label">CAMERA 01</span>
+        </div>
+    </div>
+
+    <!-- ── TELEMETRY ── -->
+    <div class="panel panel-telemetry" style="grid-row: 1 / 2; min-height: 0;">
+        <div class="panel-header">
+            <div class="panel-title"><span class="dot" style="background:var(--cyan);box-shadow:0 0 8px rgba(0,229,255,0.5);"></span> Telemetry</div>
+            <span id="earLabel" class="panel-label" style="font-family:'Share Tech Mono',monospace;color:var(--cyan);">EAR: 0.000</span>
+        </div>
+        <div class="telemetry-content">
+            <!-- Attention Ring -->
+            <div class="ring-container">
+                <svg class="ring-svg" viewBox="0 0 200 200">
+                    <circle class="ring-bg" cx="100" cy="100" r="85"/>
+                    <circle id="ringFill" class="ring-fill" cx="100" cy="100" r="85"
+                            stroke-dasharray="534" stroke-dashoffset="0"/>
+                </svg>
+                <span id="attentionVal" class="ring-value">0</span>
+                <span class="ring-label">Attention</span>
+            </div>
+
+            <!-- Metrics: Blink, Face Conf, Danger Ctr -->
+            <div class="metric-row">
+                <div class="metric-card">
+                    <div id="blinkVal" class="metric-val">0</div>
+                    <div class="metric-label">Blink/Min</div>
+                </div>
+                <div class="metric-card">
+                    <div id="faceConfVal" class="metric-val">0%</div>
+                    <div class="metric-label">Face Conf</div>
+                </div>
+                <div class="metric-card">
+                    <div id="dangerCtrVal" class="metric-val">0</div>
+                    <div class="metric-label">Danger Ctr</div>
+                </div>
+            </div>
+
+            <!-- Detection Badges: Drowsiness + Yawning -->
+            <div class="detection-row">
+                <div class="detection-badge">
+                    <span class="detection-icon">😴</span>
+                    <div class="detection-info">
+                        <div class="detection-name">Drowsiness</div>
+                        <div id="drowsyStatus" class="detection-status">
+                            <span id="drowsyDot" class="detection-dot" style="background:var(--green);"></span>
+                            <span id="drowsyLabel" style="color:var(--green);">✅ SAFE</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="detection-badge">
+                    <span class="detection-icon">🥱</span>
+                    <div class="detection-info">
+                        <div class="detection-name">Yawning</div>
+                        <div id="yawnStatus" class="detection-status">
+                            <span id="yawnDot" class="detection-dot" style="background:var(--green);"></span>
+                            <span id="yawnLabel">MAR: 0.000</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── J.A.R.V.I.S. PANEL ── -->
+    <div class="panel" style="grid-row: 2 / 3;">
+        <div class="panel-header">
+            <div class="panel-title"><span class="dot" style="background:var(--red);box-shadow:0 0 8px rgba(255,23,68,0.5);"></span> J.A.R.V.I.S.</div>
+            <span id="jarvisStatus" class="panel-label" style="color:var(--green);">ONLINE</span>
+        </div>
+        <div id="jarvisLog" class="jarvis-content">
+            <div class="jarvis-msg info">
+                <span class="jarvis-time">--:--:--</span>
+                Systems online — all modules nominal.
+            </div>
+        </div>
+    </div>
+
+    <!-- ── SESSION STATS ── -->
+    <div class="panel" style="grid-row: 2 / 3;">
+        <div class="panel-header">
+            <div class="panel-title"><span class="dot" style="background:var(--amber);box-shadow:0 0 8px rgba(255,179,0,0.5);"></span> Session Stats</div>
+            <span class="panel-label">CURRENT</span>
+        </div>
+        <div class="stats-content">
+            <div class="stat-card alert">
+                <div id="totalAlerts" class="stat-val">0</div>
+                <div class="stat-label">Total Alerts</div>
+            </div>
+            <div class="stat-card danger">
+                <div id="drowsyCount" class="stat-val">0</div>
+                <div class="stat-label">Drowsiness</div>
+            </div>
+            <div class="stat-card danger">
+                <div id="yawnCount" class="stat-val">0</div>
+                <div class="stat-label">Yawning</div>
+            </div>
+            <div class="stat-card danger">
+                <div id="distractCount" class="stat-val">0</div>
+                <div class="stat-label">Distraction</div>
+            </div>
+        </div>
+        <div class="latency-bar">
+            <span class="latency-label">AI Latency</span>
+            <span id="latencyVal" class="latency-val" style="color:var(--cyan);">0.0 ms</span>
+        </div>
+    </div>
+
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!--  JAVASCRIPT                                             -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<script>
+const socket = io();
+
+// ── DOM refs ──
+const $ = id => document.getElementById(id);
+const statusBadge   = $('statusBadge');
+const statusDot     = $('statusDot');
+const statusText    = $('statusText');
+const clockEl       = $('clock');
+const fpsEl         = $('fpsVal');
+const earLabelEl    = $('earLabel');
+const ringFill      = $('ringFill');
+const attentionVal  = $('attentionVal');
+const blinkVal      = $('blinkVal');
+const faceConfVal   = $('faceConfVal');
+const dangerCtrVal  = $('dangerCtrVal');
+const drowsyDot     = $('drowsyDot');
+const drowsyLabel   = $('drowsyLabel');
+const yawnDot       = $('yawnDot');
+const yawnLabel     = $('yawnLabel');
+const jarvisLog     = $('jarvisLog');
+const jarvisStatus  = $('jarvisStatus');
+const totalAlerts   = $('totalAlerts');
+const drowsyCount   = $('drowsyCount');
+const yawnCount     = $('yawnCount');
+const distractCount = $('distractCount');
+const latencyVal    = $('latencyVal');
+
+const RING_CIRC = 2 * Math.PI * 85; // ~534
+
+// ── Session counters ──
+let alertCtr = 0, drowsyCtr = 0, yawnCtr = 0, distractCtr = 0;
+let prevDrowsy = false, prevYawn = false, prevDistracted = false;
+
+// ── Clock ──
+setInterval(() => {
+    clockEl.textContent = new Date().toLocaleTimeString('en-US', { hour12: false });
+}, 1000);
+clockEl.textContent = new Date().toLocaleTimeString('en-US', { hour12: false });
+
+// ── Status color helper ──
+function setStatus(status) {
+    let color = 'var(--green)';
+    if (status === 'DANGER') color = 'var(--red)';
+    else if (status === 'WARNING') color = 'var(--amber)';
+
+    statusText.textContent = status;
+    statusBadge.style.color = color;
+    statusDot.style.background = color;
+    statusDot.style.boxShadow = `0 0 12px ${color}`;
+}
+
+// ── Telemetry update ──
+socket.on('telemetry_update', (d) => {
+    // Safety status
+    setStatus(d.safety_status || 'SAFE');
+
+    // FPS
+    fpsEl.textContent = d.camera_fps ?? 0;
+
+    // EAR label in header
+    earLabelEl.textContent = `EAR: ${(d.ear ?? 0).toFixed(3)}`;
+
+    // Attention ring
+    const att = d.attention_score ?? 0;
+    attentionVal.textContent = Math.round(att);
+    const offset = RING_CIRC - (RING_CIRC * att / 100);
+    ringFill.style.strokeDashoffset = offset;
+
+    // Ring color
+    let ringColor = 'var(--cyan)';
+    if (att < 40) ringColor = 'var(--red)';
+    else if (att < 70) ringColor = 'var(--amber)';
+    ringFill.style.stroke = ringColor;
+    attentionVal.style.color = ringColor;
+    attentionVal.style.textShadow = `0 0 20px ${ringColor}`;
+
+    // Metrics
+    blinkVal.textContent = Math.round(d.blink_rate ?? 0);
+    faceConfVal.textContent = Math.round((d.face_confidence ?? 0) * 100) + '%';
+    dangerCtrVal.textContent = d.danger_counter ?? 0;
+
+    // Drowsiness
+    if (d.is_drowsy) {
+        drowsyDot.style.background = 'var(--red)';
+        drowsyLabel.textContent = '⚠️ DROWSY';
+        drowsyLabel.style.color = 'var(--red)';
+        if (!prevDrowsy) { drowsyCtr++; drowsyCount.textContent = drowsyCtr; }
+    } else {
+        drowsyDot.style.background = 'var(--green)';
+        drowsyLabel.textContent = '✅ SAFE';
+        drowsyLabel.style.color = 'var(--green)';
+    }
+    prevDrowsy = d.is_drowsy;
+
+    // Yawning
+    const mar = d.mar ?? 0;
+    yawnLabel.textContent = `MAR: ${mar.toFixed(3)}`;
+    if (d.is_yawning) {
+        yawnDot.style.background = 'var(--red)';
+        yawnLabel.style.color = 'var(--red)';
+        yawnLabel.textContent = '⚠️ YAWNING';
+        if (!prevYawn) { yawnCtr++; yawnCount.textContent = yawnCtr; }
+    } else {
+        yawnDot.style.background = 'var(--green)';
+        yawnLabel.style.color = 'var(--green)';
+    }
+    prevYawn = d.is_yawning;
+
+    // Distraction counting
+    if (d.is_distracted && !prevDistracted) {
+        distractCtr++;
+        distractCount.textContent = distractCtr;
+    }
+    prevDistracted = d.is_distracted;
+
+    // AI Latency
+    const ms = d.process_time_ms ?? 0;
+    latencyVal.textContent = ms.toFixed(1) + ' ms';
+    latencyVal.style.color = ms > 50 ? 'var(--red)' : ms > 30 ? 'var(--amber)' : 'var(--cyan)';
+});
+
+// ── Jarvis alerts ──
+const lastAlertMap = {};
+socket.on('jarvis_alert', (d) => {
+    const msg = d.message || 'Unknown alert';
+    const now = Date.now();
+    if (lastAlertMap[msg] && now - lastAlertMap[msg] < 5000) return;
+    lastAlertMap[msg] = now;
+
+    alertCtr++;
+    totalAlerts.textContent = alertCtr;
+
+    const time = new Date().toLocaleTimeString('en-US', { hour12: false });
+    const cls = d.alert_type === 'DROWSY' || d.alert_type === 'DROWSINESS'
+        ? 'danger' : d.alert_type === 'DISTRACTION' ? 'warning' : 'warning';
+    const fallback = d.fallback ? ' [LOCAL]' : '';
+
+    const div = document.createElement('div');
+    div.className = `jarvis-msg ${cls}`;
+    div.innerHTML = `<span class="jarvis-time">${time}</span>${msg}${fallback}`;
+    jarvisLog.prepend(div);
+
+    // Keep max 30
+    while (jarvisLog.children.length > 30) jarvisLog.lastChild.remove();
+});
+
+// ── System status ──
+socket.on('system_status', (d) => {
+    const time = new Date().toLocaleTimeString('en-US', { hour12: false });
+    const div = document.createElement('div');
+    div.className = 'jarvis-msg info';
+    div.innerHTML = `<span class="jarvis-time">${time}</span>${d.message}`;
+    jarvisLog.prepend(div);
+
+    if (d.jarvis_online) {
+        jarvisStatus.textContent = 'ONLINE';
+        jarvisStatus.style.color = 'var(--green)';
+    } else {
+        jarvisStatus.textContent = 'OFFLINE';
+        jarvisStatus.style.color = 'var(--red)';
+    }
+});
+
+// ── Connection indicator ──
+socket.on('connect', () => { jarvisStatus.style.color = 'var(--green)'; });
+socket.on('disconnect', () => { jarvisStatus.style.color = 'var(--red)'; jarvisStatus.textContent = 'OFFLINE'; });
+</script>
+</body>
+</html>

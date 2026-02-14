@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>ADAR — Advanced Driver Attention & Response</title>
+
+    <!-- Fonts: Orbitron (headers), Rajdhani (body), Share Tech Mono (data) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com"/>
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&family=Rajdhani:wght@300;400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet"/>
+
+    <!-- Socket.IO (Flask-SocketIO) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.4/socket.io.min.js"></script>
+
+    <!-- Stylesheet -->
+    <link rel="stylesheet" href="/static/style.css"/>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════════
+     HEADER BAR
+     ═══════════════════════════════════════════════════════════ -->
+<header class="hud-header">
+    <!-- LEFT: Logo -->
+    <div class="hdr-left">
+        <div class="logo-orb"></div>
+        <span class="logo-name">ADAR</span>
+        <span class="logo-sub">Advanced Driver Attention &amp; Response</span>
+    </div>
+
+    <!-- CENTER: Safety Status -->
+    <div class="hdr-center">
+        <div id="statusMaster" class="status-master" style="color:var(--green)">
+            <span id="statusDot" class="status-master-dot glow-pulse" style="background:var(--green);box-shadow:0 0 12px var(--green)"></span>
+            <span id="statusText">SAFE</span>
+        </div>
+    </div>
+
+    <!-- RIGHT: Clock + FPS -->
+    <div class="hdr-right">
+        <span id="clock" class="clock">00:00:00</span>
+        <div class="fps-block">
+            <div class="fps-label">FPS</div>
+            <div id="fpsVal" class="fps-num">0</div>
+        </div>
+    </div>
+</header>
+
+
+<!-- ═══════════════════════════════════════════════════════════
+     MAIN 2×2 GRID
+     ═══════════════════════════════════════════════════════════ -->
+<div class="hud-grid">
+
+    <!-- ──────────── PANEL 1: LIVE FEED (top-left) ──────────── -->
+    <div class="panel">
+        <div class="panel-hdr">
+            <div class="panel-title"><span class="pdot pdot-orange"></span> Live Feed</div>
+            <span class="panel-tag">CAMERA 01</span>
+        </div>
+        <div class="feed-wrap">
+            <img id="videoFeed" src="/video_feed" alt="Live Camera Feed"/>
+            <div class="corner c-tl"></div>
+            <div class="corner c-tr"></div>
+            <div class="corner c-bl"></div>
+            <div class="corner c-br"></div>
+            <div class="scanline"></div>
+            <span class="cam-label">CAMERA 01</span>
+        </div>
+    </div>
+
+    <!-- ──────────── PANEL 2: TELEMETRY (top-right) ──────────── -->
+    <div class="panel">
+        <div class="panel-hdr">
+            <div class="panel-title"><span class="pdot pdot-cyan"></span> Telemetry</div>
+            <span id="earTag" class="panel-tag" style="color:var(--cyan)">EAR: 0.000</span>
+        </div>
+        <div class="telem-body">
+            <!-- Attention Ring -->
+            <div class="ring-box">
+                <svg class="ring-svg" viewBox="0 0 200 200">
+                    <circle class="ring-track" cx="100" cy="100" r="85"/>
+                    <circle id="ringArc" class="ring-arc" cx="100" cy="100" r="85"
+                            stroke-dasharray="534" stroke-dashoffset="0"/>
+                </svg>
+                <span id="ringNum" class="ring-num">0</span>
+                <span class="ring-lbl">Attention</span>
+            </div>
+
+            <!-- EAR & MAR Real-time Graphs -->
+            <div class="graph-section">
+                <div class="graph-box">
+                    <div class="graph-header">
+                        <span class="graph-title">EAR</span>
+                        <span id="earGraphVal" class="graph-val">0.000</span>
+                    </div>
+                    <canvas id="earGraph" class="graph-canvas" height="45"></canvas>
+                </div>
+                <div class="graph-box">
+                    <div class="graph-header">
+                        <span class="graph-title">MAR</span>
+                        <span id="marGraphVal" class="graph-val">0.000</span>
+                    </div>
+                    <canvas id="marGraph" class="graph-canvas" height="45"></canvas>
+                </div>
+            </div>
+
+            <!-- Metrics: Blink, Face Conf, Danger Ctr -->
+            <div class="metric-row">
+                <div class="metric">
+                    <div id="blinkVal" class="metric-val">0</div>
+                    <div class="metric-lbl">Blink/Min</div>
+                </div>
+                <div class="metric">
+                    <div id="faceConfVal" class="metric-val">0%</div>
+                    <div class="metric-lbl">Face Conf</div>
+                </div>
+                <div class="metric">
+                    <div id="dangerVal" class="metric-val">0</div>
+                    <div class="metric-lbl">Danger Ctr</div>
+                </div>
+            </div>
+
+            <!-- Detection Badges -->
+            <div class="detect-row">
+                <!-- Drowsiness -->
+                <div id="drowsyBadge" class="detect-badge">
+                    <span class="detect-icon">😴</span>
+                    <div class="detect-info">
+                        <div class="detect-name">Drowsiness</div>
+                        <div class="detect-state">
+                            <span id="drowsyDot" class="detect-dot" style="background:var(--green)"></span>
+                            <span id="drowsyLbl" style="color:var(--green)">✅ SAFE</span>
+                        </div>
+                        <div id="drowsyTimerRow" class="drowsy-timer-row" style="display:none">
+                            <div class="timer-bar-track">
+                                <div id="drowsyTimerBar" class="timer-bar-fill"></div>
+                            </div>
+                            <span id="drowsyTimerVal" class="timer-val">0.0s</span>
+                        </div>
+                    </div>
+                </div>
+                <!-- Yawning -->
+                <div class="detect-badge">
+                    <span class="detect-icon">🥱</span>
+                    <div>
+                        <div class="detect-name">Yawning</div>
+                        <div class="detect-state">
+                            <span id="yawnDot" class="detect-dot" style="background:var(--green)"></span>
+                            <span id="yawnLbl" style="color:var(--green)">MAR: 0.000</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Distraction Detection Row -->
+            <div class="detect-row three-col">
+                <!-- Phone -->
+                <div id="phoneBadge" class="detect-badge">
+                    <span class="detect-icon">📱</span>
+                    <div class="detect-info">
+                        <div class="detect-name">Phone</div>
+                        <div class="detect-state">
+                            <span id="phoneDot" class="detect-dot" style="background:var(--green)"></span>
+                            <span id="phoneLbl" style="color:var(--green)">✅ CLEAR</span>
+                        </div>
+                    </div>
+                </div>
+                <!-- Looking Away -->
+                <div id="lookBadge" class="detect-badge">
+                    <span class="detect-icon">👀</span>
+                    <div class="detect-info">
+                        <div class="detect-name">Look Away</div>
+                        <div class="detect-state">
+                            <span id="lookDot" class="detect-dot" style="background:var(--green)"></span>
+                            <span id="lookLbl" style="color:var(--green)">✅ FORWARD</span>
+                        </div>
+                    </div>
+                </div>
+                <!-- Objects -->
+                <div id="objBadge" class="detect-badge">
+                    <span class="detect-icon">🔍</span>
+                    <div class="detect-info">
+                        <div class="detect-name">Objects</div>
+                        <div class="detect-state">
+                            <span id="objDot" class="detect-dot" style="background:var(--green)"></span>
+                            <span id="objLbl" style="color:var(--green)">NONE</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ──────────── PANEL 3: J.A.R.V.I.S. (bottom-left) ──────────── -->
+    <div class="panel">
+        <div class="panel-hdr">
+            <div class="panel-title"><span class="pdot pdot-red"></span> J.A.R.V.I.S.</div>
+            <span id="jarvisStat" class="panel-tag" style="color:var(--green)">ONLINE</span>
+        </div>
+        <div id="jarvisLog" class="jarvis-body">
+            <div class="j-msg info">
+                <span class="j-time">--:--:--</span>
+                Systems online — all modules nominal.
+            </div>
+        </div>
+    </div>
+
+    <!-- ──────────── PANEL 4: SESSION STATS (bottom-right) ──────────── -->
+    <div class="panel">
+        <div class="panel-hdr">
+            <div class="panel-title"><span class="pdot pdot-amber"></span> Session Stats</div>
+            <span class="panel-tag">CURRENT</span>
+        </div>
+        <div class="stats-body">
+            <div class="stat">
+                <div id="sTotalAlerts" class="stat-num clr-amber">0</div>
+                <div class="stat-lbl">Total Alerts</div>
+            </div>
+            <div class="stat">
+                <div id="sDrowsy" class="stat-num clr-red">0</div>
+                <div class="stat-lbl">Drowsiness</div>
+            </div>
+            <div class="stat">
+                <div id="sYawn" class="stat-num clr-red">0</div>
+                <div class="stat-lbl">Yawning</div>
+            </div>
+            <div class="stat">
+                <div id="sDistract" class="stat-num clr-red">0</div>
+                <div class="stat-lbl">Distraction</div>
+            </div>
+        </div>
+        <div class="latency-row">
+            <span class="latency-tag">AI Latency</span>
+            <span id="latencyNum" class="latency-num" style="color:var(--cyan)">0.0 ms</span>
+        </div>
+    </div>
+
+</div><!-- /hud-grid -->
+
+
+<!-- ═══════════════════════════════════════════════════════════
+     CLIENT-SIDE LOGIC
+     ═══════════════════════════════════════════════════════════ -->
+<script>
+(function () {
+    'use strict';
+
+    const socket = io();
+
+    /* ── DOM refs ────────────────────────────────── */
+    const $ = id => document.getElementById(id);
+
+    const el = {
+        clock:      $('clock'),
+        fps:        $('fpsVal'),
+        earTag:     $('earTag'),
+        statusM:    $('statusMaster'),
+        statusDot:  $('statusDot'),
+        statusTxt:  $('statusText'),
+        ringArc:    $('ringArc'),
+        ringNum:    $('ringNum'),
+        blinkVal:   $('blinkVal'),
+        faceConf:   $('faceConfVal'),
+        dangerVal:  $('dangerVal'),
+        drowsyDot:  $('drowsyDot'),
+        drowsyLbl:  $('drowsyLbl'),
+        yawnDot:    $('yawnDot'),
+        yawnLbl:    $('yawnLbl'),
+        jarvisLog:  $('jarvisLog'),
+        jarvisStat: $('jarvisStat'),
+        sTotal:     $('sTotalAlerts'),
+        sDrowsy:    $('sDrowsy'),
+        sYawn:      $('sYawn'),
+        sDistract:  $('sDistract'),
+        latency:    $('latencyNum'),
+        phoneDot:   $('phoneDot'),
+        phoneLbl:   $('phoneLbl'),
+        lookDot:    $('lookDot'),
+        lookLbl:    $('lookLbl'),
+        objDot:     $('objDot'),
+        objLbl:     $('objLbl'),
+    };
+
+    const CIRC = 2 * Math.PI * 85;   // ≈ 534
+
+    /* ── EAR / MAR Graph Setup ────────────────────── */
+    const EAR_CANVAS = $('earGraph');
+    const MAR_CANVAS = $('marGraph');
+    const earCtx = EAR_CANVAS.getContext('2d');
+    const marCtx = MAR_CANVAS.getContext('2d');
+    const GRAPH_POINTS = 30;  // 30 seconds of data
+    const earData = [];
+    const marData = [];
+
+    function resizeCanvas(canvas) {
+        canvas.width = canvas.parentElement.clientWidth;
+    }
+    resizeCanvas(EAR_CANVAS);
+    resizeCanvas(MAR_CANVAS);
+    window.addEventListener('resize', function() {
+        resizeCanvas(EAR_CANVAS);
+        resizeCanvas(MAR_CANVAS);
+        drawGraph(earCtx, EAR_CANVAS, earData, 0.5, '#00f3ff', 'rgba(0,243,255,0.08)');
+        drawGraph(marCtx, MAR_CANVAS, marData, 1.0, '#ff9d00', 'rgba(255,157,0,0.08)');
+    });
+
+    function drawGraph(ctx, canvas, data, maxVal, color, fillColor) {
+        var w = canvas.width;
+        var h = canvas.height;
+        ctx.clearRect(0, 0, w, h);
+
+        // Grid lines
+        ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+        ctx.lineWidth = 1;
+        for (var i = 1; i < 4; i++) {
+            var gy = (h / 4) * i;
+            ctx.beginPath();
+            ctx.moveTo(0, gy);
+            ctx.lineTo(w, gy);
+            ctx.stroke();
+        }
+
+        if (data.length < 2) return;
+
+        var step = w / (GRAPH_POINTS - 1);
+        var startX = w - (data.length - 1) * step;
+
+        // Fill area
+        ctx.beginPath();
+        ctx.moveTo(startX, h);
+        for (var j = 0; j < data.length; j++) {
+            var x = startX + j * step;
+            var y = h - (data[j] / maxVal) * (h - 4);
+            if (y < 2) y = 2;
+            if (j === 0) ctx.lineTo(x, y);
+            else ctx.lineTo(x, y);
+        }
+        ctx.lineTo(startX + (data.length - 1) * step, h);
+        ctx.closePath();
+        ctx.fillStyle = fillColor;
+        ctx.fill();
+
+        // Line
+        ctx.beginPath();
+        for (var k = 0; k < data.length; k++) {
+            var lx = startX + k * step;
+            var ly = h - (data[k] / maxVal) * (h - 4);
+            if (ly < 2) ly = 2;
+            if (k === 0) ctx.moveTo(lx, ly);
+            else ctx.lineTo(lx, ly);
+        }
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1.5;
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 6;
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+
+        // Last point dot
+        if (data.length > 0) {
+            var lastX = startX + (data.length - 1) * step;
+            var lastY = h - (data[data.length - 1] / maxVal) * (h - 4);
+            if (lastY < 2) lastY = 2;
+            ctx.beginPath();
+            ctx.arc(lastX, lastY, 3, 0, Math.PI * 2);
+            ctx.fillStyle = color;
+            ctx.shadowColor = color;
+            ctx.shadowBlur = 8;
+            ctx.fill();
+            ctx.shadowBlur = 0;
+        }
+    }
+
+    /* ── Session counters ────────────────────────── */
+    let alertCtr = 0, drowsyCtr = 0, yawnCtr = 0, distractCtr = 0;
+    let prevDrowsy = false, prevYawn = false, prevDistract = false;
+
+    /* ── Clock ───────────────────────────────────── */
+    function tick() {
+        el.clock.textContent = new Date().toLocaleTimeString('en-US', { hour12: false });
+    }
+    tick();
+    setInterval(tick, 1000);
+
+    /* ── Status helper ───────────────────────────── */
+    function setStatus(s) {
+        const c = s === 'DANGER'  ? 'var(--red)'
+                : s === 'WARNING' ? 'var(--amber)'
+                :                   'var(--green)';
+        el.statusTxt.textContent = s;
+        el.statusM.style.color = c;
+        el.statusDot.style.background = c;
+        el.statusDot.style.boxShadow = '0 0 12px ' + c;
+        // Pulse animation for danger
+        if (s === 'DANGER') {
+            el.statusDot.classList.add('glow-pulse');
+            el.statusM.classList.add('pulse');
+        } else {
+            el.statusDot.classList.remove('glow-pulse');
+            el.statusM.classList.remove('pulse');
+        }
+    }
+
+    /* ── Ring color ───────────────────────────────── */
+    function ringColor(v) {
+        return v < 40 ? 'var(--red)' : v < 70 ? 'var(--amber)' : 'var(--cyan)';
+    }
+
+    /* ══════ TELEMETRY UPDATE ══════ */
+    socket.on('telemetry_update', function (d) {
+
+        /* Safety */
+        setStatus(d.safety_status || 'SAFE');
+
+        /* FPS */
+        el.fps.textContent = d.camera_fps ?? 0;
+
+        /* EAR in panel header */
+        el.earTag.textContent = 'EAR: ' + (d.ear ?? 0).toFixed(3);
+
+        /* ── Attention Ring ── */
+        var att = d.attention_score ?? 0;
+        el.ringNum.textContent = Math.round(att);
+        var off = CIRC - (CIRC * att / 100);
+        el.ringArc.style.strokeDashoffset = off;
+        var rc = ringColor(att);
+        el.ringArc.style.stroke = rc;
+        el.ringNum.style.color = rc;
+        el.ringNum.style.textShadow = '0 0 24px ' + rc;
+
+        /* ── EAR/MAR Graphs ── */
+        var earVal = d.ear ?? 0;
+        var marVal = d.mar ?? 0;
+        $('earGraphVal').textContent = earVal.toFixed(3);
+        $('marGraphVal').textContent = marVal.toFixed(3);
+        earData.push(earVal);
+        marData.push(marVal);
+        if (earData.length > GRAPH_POINTS) earData.shift();
+        if (marData.length > GRAPH_POINTS) marData.shift();
+        drawGraph(earCtx, EAR_CANVAS, earData, 0.5, '#00f3ff', 'rgba(0,243,255,0.08)');
+        drawGraph(marCtx, MAR_CANVAS, marData, 1.0, '#ff9d00', 'rgba(255,157,0,0.08)');
+
+        /* ── Metric cards ── */
+        el.blinkVal.textContent  = Math.round(d.blink_rate ?? 0);
+        el.faceConf.textContent  = Math.round((d.face_confidence ?? 0) * 100) + '%';
+        el.dangerVal.textContent = d.danger_counter ?? 0;
+
+        /* ── Drowsiness with Timer ── */
+        var drowsyTimer = d.drowsy_timer_sec ?? 0;
+        var drowsyBadge = $('drowsyBadge');
+        var timerRow = $('drowsyTimerRow');
+        var timerBar = $('drowsyTimerBar');
+        var timerVal = $('drowsyTimerVal');
+        
+        if (d.is_drowsy || drowsyTimer > 0.01) {
+            // Show timer
+            timerRow.style.display = 'flex';
+            timerVal.textContent = drowsyTimer.toFixed(1) + 's';
+            var pct = Math.min(100, (drowsyTimer / 3.5) * 100);
+            timerBar.style.width = pct + '%';
+            
+            if (drowsyTimer >= 3.5) {
+                // DANGER — timer exceeded
+                el.drowsyDot.style.background = 'var(--red)';
+                el.drowsyDot.style.boxShadow  = '0 0 8px var(--red)';
+                el.drowsyLbl.textContent = '🚨 DANGER';
+                el.drowsyLbl.style.color = 'var(--red)';
+                timerBar.style.background = 'var(--red)';
+                timerBar.style.boxShadow = '0 0 8px var(--red)';
+                timerVal.style.color = 'var(--red)';
+                drowsyBadge.style.borderColor = 'var(--red)';
+            } else {
+                // WARNING — eyes closing, timer counting
+                el.drowsyDot.style.background = 'var(--amber)';
+                el.drowsyDot.style.boxShadow  = '0 0 8px var(--amber)';
+                el.drowsyLbl.textContent = '⚠️ EYES CLOSING';
+                el.drowsyLbl.style.color = 'var(--amber)';
+                timerBar.style.background = 'var(--amber)';
+                timerBar.style.boxShadow = '0 0 6px var(--amber)';
+                timerVal.style.color = 'var(--amber)';
+                drowsyBadge.style.borderColor = 'var(--amber)';
+            }
+            if (!prevDrowsy) { drowsyCtr++; el.sDrowsy.textContent = drowsyCtr; }
+        } else {
+            el.drowsyDot.style.background = 'var(--green)';
+            el.drowsyDot.style.boxShadow  = '0 0 6px var(--green)';
+            el.drowsyLbl.textContent = '✅ SAFE';
+            el.drowsyLbl.style.color = 'var(--green)';
+            timerRow.style.display = 'none';
+            timerBar.style.width = '0%';
+            drowsyBadge.style.borderColor = 'var(--panel-border)';
+        }
+        prevDrowsy = d.is_drowsy;
+
+        /* ── Yawning ── */
+        var mar = d.mar ?? 0;
+        if (d.is_yawning) {
+            el.yawnDot.style.background = 'var(--red)';
+            el.yawnDot.style.boxShadow  = '0 0 8px var(--red)';
+            el.yawnLbl.textContent = '⚠️ YAWNING';
+            el.yawnLbl.style.color = 'var(--red)';
+            if (!prevYawn) { yawnCtr++; el.sYawn.textContent = yawnCtr; }
+        } else {
+            el.yawnDot.style.background = 'var(--green)';
+            el.yawnDot.style.boxShadow  = '0 0 6px var(--green)';
+            el.yawnLbl.textContent = 'MAR: ' + mar.toFixed(3);
+            el.yawnLbl.style.color = 'var(--green)';
+        }
+        prevYawn = d.is_yawning;
+
+        /* ── Distraction counter ── */
+        if (d.is_distracted && !prevDistract) {
+            distractCtr++;
+            el.sDistract.textContent = distractCtr;
+        }
+        prevDistract = d.is_distracted;
+
+        /* ── Phone Detection ── */
+        var hasPhone = (d.detected_objects || []).indexOf('cell phone') >= 0;
+        var phoneNear = d.is_phone_near_ear;
+        if (phoneNear) {
+            el.phoneDot.style.background = 'var(--red)';
+            el.phoneDot.style.boxShadow  = '0 0 8px var(--red)';
+            el.phoneLbl.textContent = '🚨 PHONE IN USE';
+            el.phoneLbl.style.color = 'var(--red)';
+            $('phoneBadge').style.borderColor = 'var(--red)';
+        } else if (hasPhone) {
+            el.phoneDot.style.background = 'var(--amber)';
+            el.phoneDot.style.boxShadow  = '0 0 8px var(--amber)';
+            el.phoneLbl.textContent = '⚠️ DETECTED';
+            el.phoneLbl.style.color = 'var(--amber)';
+            $('phoneBadge').style.borderColor = 'var(--amber)';
+        } else {
+            el.phoneDot.style.background = 'var(--green)';
+            el.phoneDot.style.boxShadow  = '0 0 6px var(--green)';
+            el.phoneLbl.textContent = '✅ CLEAR';
+            el.phoneLbl.style.color = 'var(--green)';
+            $('phoneBadge').style.borderColor = 'var(--panel-border)';
+        }
+
+        /* ── Looking Away ── */
+        if (d.is_looking_away) {
+            el.lookDot.style.background = 'var(--red)';
+            el.lookDot.style.boxShadow  = '0 0 8px var(--red)';
+            el.lookLbl.textContent = '⚠️ LOOK AWAY';
+            el.lookLbl.style.color = 'var(--red)';
+            $('lookBadge').style.borderColor = 'var(--red)';
+        } else if (d.is_looking_down) {
+            el.lookDot.style.background = 'var(--amber)';
+            el.lookDot.style.boxShadow  = '0 0 8px var(--amber)';
+            el.lookLbl.textContent = '⚠️ LOOKING DOWN';
+            el.lookLbl.style.color = 'var(--amber)';
+            $('lookBadge').style.borderColor = 'var(--amber)';
+        } else {
+            el.lookDot.style.background = 'var(--green)';
+            el.lookDot.style.boxShadow  = '0 0 6px var(--green)';
+            el.lookLbl.textContent = '✅ FORWARD';
+            el.lookLbl.style.color = 'var(--green)';
+            $('lookBadge').style.borderColor = 'var(--panel-border)';
+        }
+
+        /* ── YOLO Objects Detected ── */
+        var objs = d.detected_objects || [];
+        if (objs.length > 0) {
+            var objNames = objs.join(', ');
+            var hasDanger = objs.some(function(o) {
+                return ['cell phone','knife','scissors','bottle','cup'].indexOf(o) >= 0;
+            });
+            if (hasDanger) {
+                el.objDot.style.background = 'var(--red)';
+                el.objDot.style.boxShadow  = '0 0 8px var(--red)';
+                el.objLbl.textContent = '🚨 ' + objNames;
+                el.objLbl.style.color = 'var(--red)';
+                $('objBadge').style.borderColor = 'var(--red)';
+            } else {
+                el.objDot.style.background = 'var(--amber)';
+                el.objDot.style.boxShadow  = '0 0 8px var(--amber)';
+                el.objLbl.textContent = objNames;
+                el.objLbl.style.color = 'var(--amber)';
+                $('objBadge').style.borderColor = 'var(--amber)';
+            }
+        } else {
+            el.objDot.style.background = 'var(--green)';
+            el.objDot.style.boxShadow  = '0 0 6px var(--green)';
+            el.objLbl.textContent = 'NONE';
+            el.objLbl.style.color = 'var(--green)';
+            $('objBadge').style.borderColor = 'var(--panel-border)';
+        }
+
+        /* ── AI Latency ── */
+        var ms = d.process_time_ms ?? 0;
+        el.latency.textContent = ms.toFixed(1) + ' ms';
+        el.latency.style.color = ms > 50 ? 'var(--red)' : ms > 30 ? 'var(--amber)' : 'var(--cyan)';
+    });
+
+    /* ══════ JARVIS ALERTS ══════ */
+    var alertMap = {};
+    socket.on('jarvis_alert', function (d) {
+        var msg = d.message || 'Unknown alert';
+        var atype = d.alert_type || 'GENERAL';
+        var now = Date.now();
+        // Dedup by alert_type (not message) — allows varied GPT messages
+        var dedupKey = atype;
+        if (alertMap[dedupKey] && now - alertMap[dedupKey] < 4000) return;
+        alertMap[dedupKey] = now;
+
+        alertCtr++;
+        el.sTotal.textContent = alertCtr;
+
+        // Update per-type counters
+        if (atype === 'DROWSINESS') { drowsyCtr++; el.sDrowsy.textContent = drowsyCtr; }
+        else if (atype === 'YAWNING') { yawnCtr++; el.sYawn.textContent = yawnCtr; }
+        else if (atype === 'DISTRACTION' || atype === 'HEAD_POSE') { distractCtr++; el.sDistract.textContent = distractCtr; }
+
+        var t = new Date().toLocaleTimeString('en-US', { hour12: false });
+        var isDanger = (atype === 'DROWSINESS' || d.gpt_status === 'DANGER');
+        var cls = isDanger ? 'danger' : 'warning';
+
+        // Source tag: [GPT-5.2] or [OFFLINE]
+        var srcHtml = '';
+        if (d.source === 'GPT-5.2') {
+            srcHtml = ' <span class="j-src j-src-gpt">GPT-5.2</span>';
+        } else if (d.source === 'OFFLINE') {
+            srcHtml = ' <span class="j-src j-src-offline">OFFLINE</span>';
+        } else if (d.source) {
+            srcHtml = ' <span class="j-src">' + d.source + '</span>';
+        }
+
+        // Latency
+        var latHtml = d.latency_ms ? ' <span class="j-lat">' + d.latency_ms + 'ms</span>' : '';
+
+        // Alert type badge
+        var typeMap = {
+            'DROWSINESS': '💤', 'YAWNING': '🥱', 'DISTRACTION': '📱',
+            'HEAD_POSE': '👀', 'LOOKING_AWAY': '👀', 'LOOKING_DOWN': '⬇️',
+            'PHONE_USE': '📞', 'DRINKING': '🍺', 'OBJECT_DETECTED': '🔍',
+            'GENERAL': '⚠️'
+        };
+        var typeIcon = typeMap[atype] || '⚠️';
+
+        var div = document.createElement('div');
+        div.className = 'j-msg ' + cls;
+        div.innerHTML = '<span class="j-time">' + t + '</span>'
+            + '<span class="j-type">' + typeIcon + '</span> '
+            + msg + srcHtml + latHtml;
+        el.jarvisLog.prepend(div);
+
+        // Flash the panel header
+        el.jarvisStat.textContent = 'ALERT';
+        el.jarvisStat.style.color = isDanger ? 'var(--red)' : 'var(--amber)';
+        setTimeout(function() {
+            el.jarvisStat.textContent = 'ONLINE';
+            el.jarvisStat.style.color = 'var(--green)';
+        }, 2000);
+
+        while (el.jarvisLog.children.length > 50) el.jarvisLog.lastChild.remove();
+    });
+
+    /* ══════ SYSTEM STATUS ══════ */
+    socket.on('system_status', function (d) {
+        var t = new Date().toLocaleTimeString('en-US', { hour12: false });
+        var div = document.createElement('div');
+        div.className = 'j-msg info';
+        div.innerHTML = '<span class="j-time">' + t + '</span>' + d.message;
+        el.jarvisLog.prepend(div);
+
+        el.jarvisStat.textContent = d.jarvis_online ? 'ONLINE' : 'OFFLINE';
+        el.jarvisStat.style.color = d.jarvis_online ? 'var(--green)' : 'var(--red)';
+    });
+
+    /* ══════ CONNECTION ══════ */
+    socket.on('connect', function () {
+        el.jarvisStat.style.color = 'var(--green)';
+    });
+
+    /* ══════ SESSION STATS INIT (from DB) ══════ */
+    socket.on('session_stats_init', function (d) {
+        alertCtr  = d.total_alerts  || 0;
+        drowsyCtr = d.drowsiness    || 0;
+        yawnCtr   = d.yawning       || 0;
+        distractCtr = d.distraction || 0;
+        el.sTotal.textContent    = alertCtr;
+        el.sDrowsy.textContent   = drowsyCtr;
+        el.sYawn.textContent     = yawnCtr;
+        el.sDistract.textContent = distractCtr;
+    });
+
+    socket.on('disconnect', function () {
+        el.jarvisStat.textContent = 'OFFLINE';
+        el.jarvisStat.style.color = 'var(--red)';
+    });
+
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,18 @@
+{
+    "typeCheckingMode": "basic",
+    "pythonVersion": "3.10",
+    "reportMissingModuleSource": "none",
+    "reportMissingTypeStubs": "none",
+    "reportPrivateUsage": "none",
+    "reportConstantRedefinition": "none",
+    "reportUnknownMemberType": "none",
+    "reportUnknownParameterType": "none",
+    "reportUnknownVariableType": "none",
+    "reportUnknownArgumentType": "none",
+    "reportMissingParameterType": "none",
+    "reportGeneralClassIssues": "none",
+    "exclude": [
+        "**/__pycache__",
+        ".venv"
+    ]
+}

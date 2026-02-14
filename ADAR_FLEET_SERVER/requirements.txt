@@ -1,0 +1,16 @@
+# ============================================================
+#  ADAR V3.0 — Fleet Command Center
+#  Dependencies (separate from the driver monitoring system)
+# ============================================================
+
+# --- Web Framework ---
+fastapi>=0.115.0
+uvicorn[standard]>=0.34.0
+websockets>=14.0
+jinja2>=3.1.4
+
+# --- WebSocket Client (for bridge) ---
+websocket-client>=1.8.0
+
+# --- Utilities ---
+pydantic>=2.0.0

@@ -1,0 +1,12 @@
+# ADAR V3.0 — Git Ignore
+__pycache__/
+*.pyc
+*.pyo
+.env
+*.db
+*.pt
+*.mp3
+.vscode/
+venv/
+.venv/
+runs/

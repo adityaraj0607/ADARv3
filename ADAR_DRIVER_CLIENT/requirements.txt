@@ -1,0 +1,33 @@
+# ============================================================
+#  ADAR V3.0 — Driver Client (The "Car")
+#  Dependencies — OpenCV + Flask + AI Pipeline
+# ============================================================
+
+# --- Web Framework & Real-time ---
+flask>=3.1.0
+flask-socketio>=5.5.1
+eventlet>=0.37.0
+
+# --- Computer Vision & AI ---
+opencv-python>=4.11.0
+mediapipe>=0.10.30
+ultralytics>=8.3.0
+numpy>=1.26.4
+
+# --- OpenAI GPT-5.2 Integration ---
+openai>=1.61.0
+
+# --- Audio Playback ---
+pygame-ce>=2.5.3
+pyttsx3>=2.90          # Local SAPI5 TTS fallback (offline voice alerts)
+
+# --- Database ---
+sqlalchemy>=2.0.37
+
+# --- Fleet Bridge (WebSocket client to Fleet Server) ---
+websocket-client>=1.8.0
+
+# --- Utilities ---
+python-dotenv>=1.0.1
+Pillow>=11.1.0
+scipy>=1.15.0

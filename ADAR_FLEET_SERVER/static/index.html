@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ADAR — Fleet Command Center</title>
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&family=Share+Tech+Mono&display=swap" rel="stylesheet" />
+
+    <!-- TailwindCSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+
+    <!-- Leaflet.js -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        orbitron: ['Orbitron', 'sans-serif'],
+                        mono: ['Share Tech Mono', 'monospace'],
+                    },
+                    colors: {
+                        'adar-bg': '#0b0f19',
+                        'adar-card': 'rgba(13, 25, 48, 0.75)',
+                        'adar-cyan': '#00f3ff',
+                        'adar-red': '#ff003c',
+                        'adar-green': '#00ff88',
+                        'adar-amber': '#ffb800',
+                        'adar-border': 'rgba(0, 243, 255, 0.25)',
+                    },
+                },
+            },
+        };
+    </script>
+
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background: #0b0f19;
+            font-family: 'Orbitron', sans-serif;
+            color: #00f3ff;
+            overflow: hidden;
+            height: 100vh;
+        }
+
+        /* ── Glassmorphism Card ── */
+        .glass-card {
+            background: rgba(13, 25, 48, 0.75);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(0, 243, 255, 0.25);
+            border-radius: 12px;
+            box-shadow: 0 0 20px rgba(0, 243, 255, 0.05), inset 0 0 20px rgba(0, 243, 255, 0.02);
+        }
+
+        /* ── Glow Effects ── */
+        .text-glow { text-shadow: 0 0 10px rgba(0, 243, 255, 0.6), 0 0 30px rgba(0, 243, 255, 0.3); }
+        .text-glow-red { text-shadow: 0 0 10px rgba(255, 0, 60, 0.8), 0 0 40px rgba(255, 0, 60, 0.4); }
+        .text-glow-green { text-shadow: 0 0 10px rgba(0, 255, 136, 0.6), 0 0 30px rgba(0, 255, 136, 0.3); }
+        .border-glow { box-shadow: 0 0 15px rgba(0, 243, 255, 0.15), inset 0 0 15px rgba(0, 243, 255, 0.05); }
+
+        /* ── Danger Pulse Animation ── */
+        @keyframes dangerPulse {
+            0%, 100% { background-color: #0b0f19; }
+            50% { background-color: rgba(255, 0, 60, 0.12); }
+        }
+        body.danger-mode {
+            animation: dangerPulse 1s ease-in-out infinite;
+        }
+        body.danger-mode .glass-card {
+            border-color: rgba(255, 0, 60, 0.5);
+            box-shadow: 0 0 25px rgba(255, 0, 60, 0.15), inset 0 0 20px rgba(255, 0, 60, 0.05);
+        }
+
+        /* ── Radar Sweep (decorative) ── */
+        @keyframes radarSweep {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        .radar-sweep {
+            animation: radarSweep 4s linear infinite;
+        }
+
+        /* ── Scrollbar ── */
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(0, 243, 255, 0.3); border-radius: 4px; }
+
+        /* ── Map Marker Pulse ── */
+        @keyframes markerPulse {
+            0%, 100% { box-shadow: 0 0 8px rgba(0, 243, 255, 0.8); transform: scale(1); }
+            50% { box-shadow: 0 0 25px rgba(0, 243, 255, 1), 0 0 50px rgba(0, 243, 255, 0.4); transform: scale(1.15); }
+        }
+        .marker-glow {
+            width: 18px; height: 18px;
+            background: radial-gradient(circle, #00f3ff 30%, rgba(0, 243, 255, 0.3) 100%);
+            border: 2px solid #00f3ff;
+            border-radius: 50%;
+            animation: markerPulse 2s ease-in-out infinite;
+        }
+        .marker-glow.danger {
+            background: radial-gradient(circle, #ff003c 30%, rgba(255, 0, 60, 0.3) 100%);
+            border-color: #ff003c;
+            box-shadow: 0 0 20px rgba(255, 0, 60, 0.8);
+        }
+
+        /* ── Leaflet Override ── */
+        .leaflet-container { background: #0b0f19 !important; }
+
+        /* ── Terminal Log ── */
+        #terminal-log {
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 11px;
+            line-height: 1.5;
+            color: rgba(0, 243, 255, 0.7);
+            overflow-y: auto;
+            max-height: 160px;
+        }
+        #terminal-log .log-danger { color: #ff003c; }
+        #terminal-log .log-warn { color: #ffb800; }
+        #terminal-log .log-info { color: rgba(0, 243, 255, 0.5); }
+
+        /* ── Scanline Overlay ── */
+        .scanlines::after {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background: repeating-linear-gradient(
+                0deg,
+                transparent,
+                transparent 2px,
+                rgba(0, 243, 255, 0.015) 2px,
+                rgba(0, 243, 255, 0.015) 4px
+            );
+            pointer-events: none;
+            z-index: 9999;
+        }
+
+        /* ── Connection Indicator ── */
+        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+        .blink { animation: blink 1.5s ease-in-out infinite; }
+    </style>
+</head>
+
+<body class="scanlines">
+
+    <!-- ═══════════════════ TOP NAVBAR ═══════════════════ -->
+    <header class="glass-card flex items-center justify-between px-6 py-3 m-2 mb-0" style="border-radius: 12px;">
+        <div class="flex items-center gap-4">
+            <!-- ADAR Logo SVG -->
+            <svg width="36" height="36" viewBox="0 0 40 40" fill="none">
+                <circle cx="20" cy="20" r="18" stroke="#00f3ff" stroke-width="1.5" opacity="0.5"/>
+                <circle cx="20" cy="20" r="12" stroke="#00f3ff" stroke-width="1" opacity="0.3"/>
+                <circle cx="20" cy="20" r="4" fill="#00f3ff"/>
+                <line x1="20" y1="2" x2="20" y2="10" stroke="#00f3ff" stroke-width="1" opacity="0.6"/>
+                <line x1="20" y1="30" x2="20" y2="38" stroke="#00f3ff" stroke-width="1" opacity="0.6"/>
+                <line x1="2" y1="20" x2="10" y2="20" stroke="#00f3ff" stroke-width="1" opacity="0.6"/>
+                <line x1="30" y1="20" x2="38" y2="20" stroke="#00f3ff" stroke-width="1" opacity="0.6"/>
+            </svg>
+            <div>
+                <h1 class="text-lg font-bold tracking-[0.3em] text-glow">ADAR</h1>
+                <p class="text-[10px] tracking-[0.2em] opacity-50">FLEET COMMAND CENTER v3.0</p>
+            </div>
+        </div>
+
+        <!-- Center Status -->
+        <div class="flex items-center gap-6 text-xs tracking-widest">
+            <div class="flex items-center gap-2">
+                <span id="ws-indicator" class="w-2 h-2 rounded-full bg-adar-red blink"></span>
+                <span id="ws-status" class="opacity-60">CONNECTING</span>
+            </div>
+            <span class="opacity-30">│</span>
+            <span id="vehicle-label" class="opacity-60">NO VEHICLE</span>
+            <span class="opacity-30">│</span>
+            <span id="clock" class="font-mono opacity-60">00:00:00</span>
+        </div>
+
+        <!-- Right: Sim Badge -->
+        <div id="sim-badge" class="hidden px-3 py-1 rounded-full text-[10px] tracking-widest border border-adar-amber text-adar-amber">
+            SIMULATION
+        </div>
+    </header>
+
+    <!-- ═══════════════════ MAIN GRID ═══════════════════ -->
+    <main class="grid gap-2 p-2 h-[calc(100vh-68px)]" style="grid-template-columns: 2fr 1fr;">
+
+        <!-- ══════════ LEFT COLUMN: MAP ══════════ -->
+        <div class="glass-card overflow-hidden relative border-glow">
+            <div id="map" class="w-full h-full"></div>
+            <!-- Map Overlay: Coordinates -->
+            <div class="absolute bottom-3 left-3 glass-card px-3 py-2 text-[10px] font-mono z-[1000]">
+                <span class="opacity-50">LAT</span> <span id="map-lat">--</span>
+                <span class="opacity-30 mx-2">│</span>
+                <span class="opacity-50">LON</span> <span id="map-lon">--</span>
+                <span class="opacity-30 mx-2">│</span>
+                <span class="opacity-50">SPD</span> <span id="map-speed">--</span> <span class="opacity-40">km/h</span>
+            </div>
+        </div>
+
+        <!-- ══════════ RIGHT COLUMN: TELEMETRY STACK ══════════ -->
+        <div class="flex flex-col gap-2 overflow-hidden">
+
+            <!-- ── 1. STATUS CARD ── -->
+            <div id="status-card" class="glass-card p-4 text-center border-glow flex-shrink-0">
+                <p class="text-[10px] tracking-[0.3em] opacity-50 mb-1">SYSTEM STATUS</p>
+                <p id="status-text" class="text-4xl font-black tracking-widest text-glow-green text-adar-green">
+                    SAFE
+                </p>
+                <p id="status-sub" class="text-[10px] mt-1 opacity-50 font-mono">ALL SYSTEMS NOMINAL</p>
+            </div>
+
+            <!-- ── 2. ENVIRONMENT CARD (MQ-135) ── -->
+            <div id="env-card" class="glass-card p-4 flex-shrink-0">
+                <div class="flex justify-between items-center mb-2">
+                    <p class="text-[10px] tracking-[0.3em] opacity-50">ENVIRONMENT — MQ-135</p>
+                    <span id="env-badge" class="text-[10px] px-2 py-0.5 rounded-full border border-adar-green text-adar-green">CLEAN</span>
+                </div>
+                <div class="flex items-end gap-3">
+                    <span id="co2-value" class="text-3xl font-bold text-glow">420</span>
+                    <span class="text-xs opacity-50 pb-1">PPM CO₂</span>
+                </div>
+                <!-- CO2 Bar -->
+                <div class="mt-3 h-2 rounded-full bg-gray-800 overflow-hidden">
+                    <div id="co2-bar" class="h-full rounded-full transition-all duration-500" style="width: 16%; background: linear-gradient(90deg, #00ff88, #00f3ff);"></div>
+                </div>
+                <div class="flex justify-between text-[9px] mt-1 opacity-30">
+                    <span>0</span><span>500</span><span>1000</span><span>1500</span><span>2500</span>
+                </div>
+            </div>
+
+            <!-- ── 3. EAR + MAR GAUGES ── -->
+            <div class="grid grid-cols-2 gap-2 flex-shrink-0">
+                <!-- EAR -->
+                <div class="glass-card p-3 text-center">
+                    <p class="text-[9px] tracking-[0.2em] opacity-50 mb-1">EAR (FATIGUE)</p>
+                    <p id="ear-value" class="text-2xl font-bold text-glow">0.28</p>
+                    <div class="mt-2 h-1.5 rounded-full bg-gray-800 overflow-hidden">
+                        <div id="ear-bar" class="h-full rounded-full bg-adar-green transition-all duration-300" style="width: 70%;"></div>
+                    </div>
+                    <p id="ear-label" class="text-[9px] mt-1 text-adar-green">ALERT</p>
+                </div>
+                <!-- MAR -->
+                <div class="glass-card p-3 text-center">
+                    <p class="text-[9px] tracking-[0.2em] opacity-50 mb-1">MAR (YAWN)</p>
+                    <p id="mar-value" class="text-2xl font-bold text-glow">0.15</p>
+                    <div class="mt-2 h-1.5 rounded-full bg-gray-800 overflow-hidden">
+                        <div id="mar-bar" class="h-full rounded-full bg-adar-green transition-all duration-300" style="width: 20%;"></div>
+                    </div>
+                    <p id="mar-label" class="text-[9px] mt-1 text-adar-green">NORMAL</p>
+                </div>
+            </div>
+
+            <!-- ── 4. LIVE GRAPH (EAR History) ── -->
+            <div class="glass-card p-3 flex-1 min-h-0">
+                <p class="text-[10px] tracking-[0.2em] opacity-50 mb-2">FATIGUE TIMELINE — EAR</p>
+                <div class="relative h-[calc(100%-20px)]">
+                    <canvas id="ear-chart"></canvas>
+                </div>
+            </div>
+
+            <!-- ── 5. TERMINAL LOG ── -->
+            <div class="glass-card p-3 flex-shrink-0" style="max-height: 180px;">
+                <div class="flex justify-between items-center mb-2">
+                    <p class="text-[10px] tracking-[0.2em] opacity-50">TELEMETRY LOG</p>
+                    <span class="text-[9px] opacity-30 font-mono" id="log-count">0 entries</span>
+                </div>
+                <div id="terminal-log"></div>
+            </div>
+        </div>
+    </main>
+
+    <!-- ═══════════════════ DANGER AUDIO ═══════════════════ -->
+    <!-- Programmatic beep via Web Audio API (no file needed) -->
+
+    <script>
+    // ============================================================
+    //  ADAR FLEET COMMAND CENTER — Frontend Engine
+    // ============================================================
+
+    (function () {
+        'use strict';
+
+        // ── DOM References ──
+        const DOM = {
+            wsIndicator:  document.getElementById('ws-indicator'),
+            wsStatus:     document.getElementById('ws-status'),
+            vehicleLabel: document.getElementById('vehicle-label'),
+            clock:        document.getElementById('clock'),
+            simBadge:     document.getElementById('sim-badge'),
+            statusText:   document.getElementById('status-text'),
+            statusSub:    document.getElementById('status-sub'),
+            statusCard:   document.getElementById('status-card'),
+            envBadge:     document.getElementById('env-badge'),
+            co2Value:     document.getElementById('co2-value'),
+            co2Bar:       document.getElementById('co2-bar'),
+            earValue:     document.getElementById('ear-value'),
+            earBar:       document.getElementById('ear-bar'),
+            earLabel:     document.getElementById('ear-label'),
+            marValue:     document.getElementById('mar-value'),
+            marBar:       document.getElementById('mar-bar'),
+            marLabel:     document.getElementById('mar-label'),
+            mapLat:       document.getElementById('map-lat'),
+            mapLon:       document.getElementById('map-lon'),
+            mapSpeed:     document.getElementById('map-speed'),
+            terminalLog:  document.getElementById('terminal-log'),
+            logCount:     document.getElementById('log-count'),
+        };
+
+        // ── State ──
+        let logEntries = 0;
+        let isDanger = false;
+        let audioCtx = null;
+        let lastBeepTime = 0;
+        let ws = null;
+        let reconnectTimer = null;
+
+        // ── Clock ──
+        function updateClock() {
+            const now = new Date();
+            DOM.clock.textContent = now.toTimeString().split(' ')[0];
+        }
+        setInterval(updateClock, 1000);
+        updateClock();
+
+        // ════════════════════════════════════
+        //  MAP INITIALIZATION (Leaflet)
+        // ════════════════════════════════════
+        const map = L.map('map', {
+            center: [28.6139, 77.2090],
+            zoom: 14,
+            zoomControl: false,
+            attributionControl: false,
+        });
+
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+            maxZoom: 19,
+        }).addTo(map);
+
+        // Custom glowing marker
+        const markerIcon = L.divIcon({
+            className: '',
+            html: '<div class="marker-glow" id="map-marker"></div>',
+            iconSize: [18, 18],
+            iconAnchor: [9, 9],
+        });
+        const vehicleMarker = L.marker([28.6139, 77.2090], { icon: markerIcon }).addTo(map);
+
+        // Breadcrumb trail
+        const trail = L.polyline([], {
+            color: '#00f3ff',
+            weight: 2,
+            opacity: 0.4,
+            dashArray: '6,8',
+        }).addTo(map);
+        const trailCoords = [];
+
+        function updateMap(lat, lon, danger) {
+            const latlng = [lat, lon];
+            vehicleMarker.setLatLng(latlng);
+
+            // Trail
+            trailCoords.push(latlng);
+            if (trailCoords.length > 200) trailCoords.shift();
+            trail.setLatLngs(trailCoords);
+
+            // Pan map smoothly
+            map.panTo(latlng, { animate: true, duration: 0.5 });
+
+            // Update marker color
+            const el = document.getElementById('map-marker');
+            if (el) {
+                el.classList.toggle('danger', danger);
+            }
+
+            DOM.mapLat.textContent = lat.toFixed(5);
+            DOM.mapLon.textContent = lon.toFixed(5);
+        }
+
+        // ════════════════════════════════════
+        //  CHART.JS — EAR Timeline
+        // ════════════════════════════════════
+        const earChartCtx = document.getElementById('ear-chart').getContext('2d');
+        const earHistory = [];
+        const earLabels = [];
+        const MAX_POINTS = 60;
+
+        const earChart = new Chart(earChartCtx, {
+            type: 'line',
+            data: {
+                labels: earLabels,
+                datasets: [{
+                    label: 'EAR',
+                    data: earHistory,
+                    borderColor: '#00f3ff',
+                    backgroundColor: 'rgba(0, 243, 255, 0.08)',
+                    borderWidth: 2,
+                    fill: true,
+                    tension: 0.35,
+                    pointRadius: 0,
+                    pointHitRadius: 8,
+                }],
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: { duration: 300 },
+                scales: {
+                    x: {
+                        display: false,
+                    },
+                    y: {
+                        min: 0.05,
+                        max: 0.45,
+                        grid: { color: 'rgba(0,243,255,0.06)' },
+                        ticks: {
+                            color: 'rgba(0,243,255,0.4)',
+                            font: { family: 'Share Tech Mono', size: 10 },
+                            stepSize: 0.1,
+                        },
+                    },
+                },
+                plugins: {
+                    legend: { display: false },
+                    annotation: undefined,
+                },
+            },
+            plugins: [{
+                // Draw threshold line at EAR = 0.20
+                afterDraw: (chart) => {
+                    const yScale = chart.scales.y;
+                    const y = yScale.getPixelForValue(0.20);
+                    const ctx = chart.ctx;
+                    ctx.save();
+                    ctx.strokeStyle = 'rgba(255, 0, 60, 0.5)';
+                    ctx.lineWidth = 1;
+                    ctx.setLineDash([6, 4]);
+                    ctx.beginPath();
+                    ctx.moveTo(chart.chartArea.left, y);
+                    ctx.lineTo(chart.chartArea.right, y);
+                    ctx.stroke();
+                    // Label
+                    ctx.fillStyle = 'rgba(255, 0, 60, 0.6)';
+                    ctx.font = '9px Share Tech Mono';
+                    ctx.fillText('DANGER', chart.chartArea.right - 46, y - 4);
+                    ctx.restore();
+                },
+            }],
+        });
+
+        function updateChart(ear) {
+            const now = new Date();
+            earLabels.push(now.toLocaleTimeString());
+            earHistory.push(ear);
+            if (earLabels.length > MAX_POINTS) {
+                earLabels.shift();
+                earHistory.shift();
+            }
+            // Color the line red when in danger
+            earChart.data.datasets[0].borderColor = ear < 0.20 ? '#ff003c' : '#00f3ff';
+            earChart.data.datasets[0].backgroundColor = ear < 0.20
+                ? 'rgba(255, 0, 60, 0.08)'
+                : 'rgba(0, 243, 255, 0.08)';
+            earChart.update('none');
+        }
+
+        // ════════════════════════════════════
+        //  DANGER AUDIO (Web Audio API)
+        // ════════════════════════════════════
+        function playDangerBeep() {
+            const now = Date.now();
+            if (now - lastBeepTime < 2000) return; // Throttle
+            lastBeepTime = now;
+
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            // Double beep pattern
+            [0, 0.15].forEach(delay => {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.type = 'square';
+                osc.frequency.setValueAtTime(880, audioCtx.currentTime + delay);
+                gain.gain.setValueAtTime(0.15, audioCtx.currentTime + delay);
+                gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + delay + 0.12);
+                osc.start(audioCtx.currentTime + delay);
+                osc.stop(audioCtx.currentTime + delay + 0.12);
+            });
+        }
+
+        // ════════════════════════════════════
+        //  TERMINAL LOG
+        // ════════════════════════════════════
+        function addLog(msg, type = 'info') {
+            logEntries++;
+            const line = document.createElement('div');
+            line.className = `log-${type}`;
+            const ts = new Date().toLocaleTimeString();
+            line.textContent = `[${ts}] ${msg}`;
+            DOM.terminalLog.appendChild(line);
+            // Keep max 80 lines
+            while (DOM.terminalLog.children.length > 80) {
+                DOM.terminalLog.removeChild(DOM.terminalLog.firstChild);
+            }
+            DOM.terminalLog.scrollTop = DOM.terminalLog.scrollHeight;
+            DOM.logCount.textContent = `${logEntries} entries`;
+        }
+
+        // ════════════════════════════════════
+        //  PROCESS INCOMING TELEMETRY
+        // ════════════════════════════════════
+        function processTelemetry(data) {
+            const danger = data.status === 'DANGER';
+
+            // ── Vehicle Label ──
+            DOM.vehicleLabel.textContent = data.vehicle_id || 'UNKNOWN';
+            if (data.is_simulation) {
+                DOM.simBadge.classList.remove('hidden');
+            } else {
+                DOM.simBadge.classList.add('hidden');
+            }
+
+            // ── Status Card ──
+            if (danger) {
+                DOM.statusText.textContent = 'DANGER';
+                DOM.statusText.className = 'text-4xl font-black tracking-widest text-glow-red text-adar-red';
+                DOM.statusSub.textContent = (data.alerts || []).join(' — ') || 'THREAT DETECTED';
+                DOM.statusSub.className = 'text-[10px] mt-1 text-adar-red font-mono';
+                document.body.classList.add('danger-mode');
+                playDangerBeep();
+            } else {
+                DOM.statusText.textContent = 'SAFE';
+                DOM.statusText.className = 'text-4xl font-black tracking-widest text-glow-green text-adar-green';
+                DOM.statusSub.textContent = 'ALL SYSTEMS NOMINAL';
+                DOM.statusSub.className = 'text-[10px] mt-1 opacity-50 font-mono';
+                document.body.classList.remove('danger-mode');
+            }
+
+            // ── CO2 / Environment ──
+            const co2 = data.co2_ppm || 0;
+            DOM.co2Value.textContent = co2.toFixed(0);
+            const co2Pct = Math.min(100, (co2 / 2500) * 100);
+            DOM.co2Bar.style.width = co2Pct + '%';
+
+            if (co2 > 1000) {
+                DOM.co2Value.className = 'text-3xl font-bold text-glow-red text-adar-red';
+                DOM.co2Bar.style.background = 'linear-gradient(90deg, #ff003c, #ff5555)';
+                DOM.envBadge.textContent = 'TOXIC AIR';
+                DOM.envBadge.className = 'text-[10px] px-2 py-0.5 rounded-full border border-adar-red text-adar-red blink';
+            } else if (co2 > 700) {
+                DOM.co2Value.className = 'text-3xl font-bold text-glow text-adar-amber';
+                DOM.co2Bar.style.background = 'linear-gradient(90deg, #ffb800, #ff8800)';
+                DOM.envBadge.textContent = 'MODERATE';
+                DOM.envBadge.className = 'text-[10px] px-2 py-0.5 rounded-full border border-adar-amber text-adar-amber';
+            } else {
+                DOM.co2Value.className = 'text-3xl font-bold text-glow';
+                DOM.co2Bar.style.background = 'linear-gradient(90deg, #00ff88, #00f3ff)';
+                DOM.envBadge.textContent = 'CLEAN';
+                DOM.envBadge.className = 'text-[10px] px-2 py-0.5 rounded-full border border-adar-green text-adar-green';
+            }
+
+            // ── EAR ──
+            const ear = data.ear || 0;
+            DOM.earValue.textContent = ear.toFixed(3);
+            const earPct = Math.min(100, (ear / 0.4) * 100);
+            DOM.earBar.style.width = earPct + '%';
+            if (ear < 0.20) {
+                DOM.earBar.className = 'h-full rounded-full bg-adar-red transition-all duration-300';
+                DOM.earLabel.textContent = 'DROWSY';
+                DOM.earLabel.className = 'text-[9px] mt-1 text-adar-red';
+            } else if (ear < 0.25) {
+                DOM.earBar.className = 'h-full rounded-full bg-adar-amber transition-all duration-300';
+                DOM.earLabel.textContent = 'FATIGUED';
+                DOM.earLabel.className = 'text-[9px] mt-1 text-adar-amber';
+            } else {
+                DOM.earBar.className = 'h-full rounded-full bg-adar-green transition-all duration-300';
+                DOM.earLabel.textContent = 'ALERT';
+                DOM.earLabel.className = 'text-[9px] mt-1 text-adar-green';
+            }
+
+            // ── MAR ──
+            const mar = data.mar || 0;
+            DOM.marValue.textContent = mar.toFixed(3);
+            const marPct = Math.min(100, (mar / 0.8) * 100);
+            DOM.marBar.style.width = marPct + '%';
+            if (mar > 0.5) {
+                DOM.marBar.className = 'h-full rounded-full bg-adar-red transition-all duration-300';
+                DOM.marLabel.textContent = 'YAWNING';
+                DOM.marLabel.className = 'text-[9px] mt-1 text-adar-red';
+            } else {
+                DOM.marBar.className = 'h-full rounded-full bg-adar-green transition-all duration-300';
+                DOM.marLabel.textContent = 'NORMAL';
+                DOM.marLabel.className = 'text-[9px] mt-1 text-adar-green';
+            }
+
+            // ── Map ──
+            if (data.location) {
+                updateMap(data.location.lat, data.location.lon, danger);
+            }
+
+            // ── Speed ──
+            DOM.mapSpeed.textContent = (data.speed_kmh || 0).toFixed(0);
+
+            // ── Chart ──
+            updateChart(ear);
+
+            // ── Terminal Log ──
+            const logType = danger ? 'danger' : 'info';
+            addLog(
+                `VID:${data.vehicle_id} | EAR:${ear.toFixed(3)} MAR:${mar.toFixed(3)} CO2:${co2.toFixed(0)} | ${data.status}`,
+                logType
+            );
+        }
+
+        // ════════════════════════════════════
+        //  WEBSOCKET CONNECTION
+        // ════════════════════════════════════
+        function connectWebSocket() {
+            const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+            const url = `${proto}://${location.host}/ws/dashboard`;
+            addLog(`Connecting to ${url}...`, 'info');
+
+            ws = new WebSocket(url);
+
+            ws.onopen = () => {
+                DOM.wsIndicator.className = 'w-2 h-2 rounded-full bg-adar-green blink';
+                DOM.wsStatus.textContent = 'CONNECTED';
+                addLog('WebSocket link ESTABLISHED', 'info');
+                if (reconnectTimer) {
+                    clearTimeout(reconnectTimer);
+                    reconnectTimer = null;
+                }
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    processTelemetry(data);
+                } catch (e) {
+                    addLog(`Parse error: ${e.message}`, 'warn');
+                }
+            };
+
+            ws.onclose = () => {
+                DOM.wsIndicator.className = 'w-2 h-2 rounded-full bg-adar-red blink';
+                DOM.wsStatus.textContent = 'DISCONNECTED';
+                addLog('WebSocket closed — reconnecting in 3s...', 'warn');
+                reconnectTimer = setTimeout(connectWebSocket, 3000);
+            };
+
+            ws.onerror = (err) => {
+                addLog('WebSocket error', 'danger');
+                ws.close();
+            };
+        }
+
+        // ── Initialize ──
+        connectWebSocket();
+        addLog('ADAR Fleet Command Center initialized', 'info');
+        addLog('Awaiting telemetry stream...', 'info');
+
+    })();
+    </script>
+</body>
+</html>
