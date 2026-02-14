@@ -282,9 +282,17 @@
                 <span id="gps-badge" class="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-blue-50 text-blue-600 border border-blue-200">
                     <span id="gps-badge-icon">📡</span> <span id="gps-badge-text">GPS: Acquiring…</span>
                 </span>
-                <!-- Sensor badge -->
+                <!-- Sensor badge (MQ-135 CO₂) -->
                 <span id="sensor-badge" class="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-slate-50 text-slate-400 border border-slate-200">
                     <span id="sensor-badge-icon">🔌</span> <span id="sensor-badge-text">MQ-135: No Sensor</span>
+                </span>
+                <!-- Alcohol badge (MQ-3) -->
+                <span id="alcohol-badge" class="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-slate-50 text-slate-400 border border-slate-200">
+                    <span id="alcohol-badge-icon">🔌</span> <span id="alcohol-badge-text">MQ-3: Offline</span>
+                </span>
+                <!-- Health badge (MAX30100) -->
+                <span id="health-badge" class="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-slate-50 text-slate-400 border border-slate-200">
+                    <span id="health-badge-icon">🔌</span> <span id="health-badge-text">HR: Offline</span>
                 </span>
                 <!-- Sim / Live badge -->
                 <span id="sim-badge" class="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-600 border border-amber-200">
@@ -384,7 +392,47 @@
                     </div>
                 </div>
 
-                <!-- 5. Trip Distance -->
+                <!-- 5. Alcohol (MQ-3) -->
+                <div class="stat-card bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+                    <div class="flex items-center justify-between mb-2">
+                        <p class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Alcohol</p>
+                        <div class="w-7 h-7 rounded-lg bg-rose-50 flex items-center justify-center" id="alc-icon-bg">
+                            <i data-lucide="wine" class="w-3.5 h-3.5 text-rose-600"></i>
+                        </div>
+                    </div>
+                    <div class="flex items-baseline gap-1">
+                        <p class="text-2xl font-bold text-slate-300" id="stat-alcohol">—</p>
+                        <span class="text-xs text-slate-400">mg/L</span>
+                    </div>
+                    <div class="mt-2 h-1 bg-slate-100 rounded-full overflow-hidden">
+                        <div id="alc-bar" class="h-full rounded-full bg-slate-200 transition-all duration-500" style="width:0%"></div>
+                    </div>
+                </div>
+
+                <!-- 6. Heart Rate (MAX30100) -->
+                <div class="stat-card bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+                    <div class="flex items-center justify-between mb-2">
+                        <p class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Heart Rate</p>
+                        <div class="w-7 h-7 rounded-lg bg-pink-50 flex items-center justify-center" id="hr-icon-bg">
+                            <i data-lucide="heart-pulse" class="w-3.5 h-3.5 text-pink-600"></i>
+                        </div>
+                    </div>
+                    <div class="flex items-baseline gap-1">
+                        <p class="text-2xl font-bold text-slate-300" id="stat-hr">—</p>
+                        <span class="text-xs text-slate-400">BPM</span>
+                    </div>
+                    <div class="flex items-center gap-2 mt-1">
+                        <span class="text-[10px] text-slate-400">SpO₂:</span>
+                        <span class="text-[10px] font-semibold" id="stat-spo2">—</span>
+                        <span class="text-[10px] text-slate-400">%</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ══════════ ROW 2: Trip + Presence + System ══════════ -->
+            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 gap-3">
+
+                <!-- 7. Trip Distance -->
                 <div class="stat-card bg-white rounded-xl border border-slate-200 shadow-sm p-4">
                     <div class="flex items-center justify-between mb-2">
                         <p class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Trip</p>
@@ -399,7 +447,23 @@
                     <p class="text-[10px] text-slate-400 mt-1" id="stat-altitude">Alt: — m</p>
                 </div>
 
-                <!-- 6. System Status -->
+                <!-- 8. Presence (C4001 mmWave) -->
+                <div class="stat-card bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+                    <div class="flex items-center justify-between mb-2">
+                        <p class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Presence</p>
+                        <div class="w-7 h-7 rounded-lg bg-indigo-50 flex items-center justify-center" id="presence-icon-bg">
+                            <i data-lucide="scan-eye" class="w-3.5 h-3.5 text-indigo-600"></i>
+                        </div>
+                    </div>
+                    <p class="text-2xl font-bold text-slate-300" id="stat-presence">—</p>
+                    <div class="flex items-center gap-2 mt-1">
+                        <span class="text-[10px] text-slate-400">Dist:</span>
+                        <span class="text-[10px] font-semibold text-slate-600" id="stat-presence-dist">—</span>
+                        <span class="text-[10px] text-slate-400">m</span>
+                    </div>
+                </div>
+
+                <!-- 9. System Status -->
                 <div class="stat-card bg-white rounded-xl border border-slate-200 shadow-sm p-4">
                     <div class="flex items-center justify-between mb-2">
                         <p class="text-[10px] font-medium text-slate-500 uppercase tracking-wide">System</p>
@@ -408,10 +472,13 @@
                         </div>
                     </div>
                     <p class="text-xs font-semibold text-emerald-600" id="stat-sys">Nominal</p>
-                    <div class="flex items-center gap-2 mt-2 text-[10px] text-slate-400">
+                    <div class="flex items-center gap-2 mt-2 text-[10px] text-slate-400 flex-wrap">
                         <span class="flex items-center gap-0.5"><span class="w-1.5 h-1.5 rounded-full bg-slate-300" id="dot-cv"></span>CV</span>
                         <span class="flex items-center gap-0.5"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>Cam</span>
                         <span class="flex items-center gap-0.5"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500" id="dot-sensor"></span>MQ</span>
+                        <span class="flex items-center gap-0.5"><span class="w-1.5 h-1.5 rounded-full bg-slate-300" id="dot-alcohol"></span>Alc</span>
+                        <span class="flex items-center gap-0.5"><span class="w-1.5 h-1.5 rounded-full bg-slate-300" id="dot-hr"></span>HR</span>
+                        <span class="flex items-center gap-0.5"><span class="w-1.5 h-1.5 rounded-full bg-slate-300" id="dot-presence"></span>mmW</span>
                         <span class="flex items-center gap-0.5"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500" id="dot-gps"></span>GPS</span>
                     </div>
                 </div>
@@ -977,6 +1044,18 @@
                         <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
                         MQ-135: <strong class="text-slate-600" id="trk-footer-co2-status">—</strong>
                     </span>
+                    <span class="flex items-center gap-1 text-slate-400">
+                        <span class="w-1.5 h-1.5 rounded-full" id="trk-footer-alc" style="background:#94a3b8"></span>
+                        MQ-3: <strong class="text-slate-600" id="trk-footer-alc-status">—</strong>
+                    </span>
+                    <span class="flex items-center gap-1 text-slate-400">
+                        <span class="w-1.5 h-1.5 rounded-full" id="trk-footer-hr" style="background:#94a3b8"></span>
+                        HR: <strong class="text-slate-600" id="trk-footer-hr-status">—</strong>
+                    </span>
+                    <span class="flex items-center gap-1 text-slate-400">
+                        <span class="w-1.5 h-1.5 rounded-full" id="trk-footer-presence" style="background:#94a3b8"></span>
+                        mmWave: <strong class="text-slate-600" id="trk-footer-presence-status">—</strong>
+                    </span>
                 </div>
                 <span class="text-slate-400">ADAR Fleet Command v3 — Real-time Tracking Module</span>
                 <span class="font-mono text-slate-300" id="trk-footer-time">—</span>
@@ -1290,6 +1369,26 @@
                                 </div>
                                 <div class="h-2 bg-slate-100 rounded-full overflow-hidden">
                                     <div id="sf-risk-co2-bar" class="h-full rounded-full bg-cyan-400 transition-all duration-500" style="width:0%"></div>
+                                </div>
+                            </div>
+                            <!-- Alcohol Risk -->
+                            <div>
+                                <div class="flex items-center justify-between mb-1">
+                                    <span class="text-[10px] text-slate-500">Alcohol Risk</span>
+                                    <span class="text-[10px] font-bold" id="sf-risk-alc-pct">0%</span>
+                                </div>
+                                <div class="h-2 bg-slate-100 rounded-full overflow-hidden">
+                                    <div id="sf-risk-alc-bar" class="h-full rounded-full bg-purple-500 transition-all duration-500" style="width:0%"></div>
+                                </div>
+                            </div>
+                            <!-- Heart Rate Risk -->
+                            <div>
+                                <div class="flex items-center justify-between mb-1">
+                                    <span class="text-[10px] text-slate-500">Heart Rate Risk</span>
+                                    <span class="text-[10px] font-bold" id="sf-risk-hr-pct">0%</span>
+                                </div>
+                                <div class="h-2 bg-slate-100 rounded-full overflow-hidden">
+                                    <div id="sf-risk-hr-bar" class="h-full rounded-full bg-rose-400 transition-all duration-500" style="width:0%"></div>
                                 </div>
                             </div>
                             <!-- Overall -->
@@ -2651,6 +2750,8 @@
             wsDot: $('ws-dot'), wsLabel: $('ws-label'),
             simBadge: $('sim-badge'), clock: $('clock'), subtitle: $('subtitle'),
             sensorBadge: $('sensor-badge'), sensorBadgeIcon: $('sensor-badge-icon'), sensorBadgeText: $('sensor-badge-text'),
+            alcoholBadge: $('alcohol-badge'), alcoholBadgeIcon: $('alcohol-badge-icon'), alcoholBadgeText: $('alcohol-badge-text'),
+            healthBadge: $('health-badge'), healthBadgeIcon: $('health-badge-icon'), healthBadgeText: $('health-badge-text'),
             cvBadge: $('cv-badge'), cvBadgeIcon: $('cv-badge-icon'), cvBadgeText: $('cv-badge-text'),
             safetyCard: $('safety-card'), dotFace: $('dot-face'), faceLabel: $('face-label'), affectiveLabel: $('affective-label'),
             dotCv: $('dot-cv'),
@@ -2662,9 +2763,12 @@
             statSafety: $('stat-safety'),
             statSpeed: $('stat-speed'), statMaxSpeed: $('stat-max-speed'),
             statCo2: $('stat-co2'), co2Bar: $('co2-bar'), co2IconBg: $('co2-icon-bg'),
+            statAlcohol: $('stat-alcohol'), alcBar: $('alc-bar'), alcIconBg: $('alc-icon-bg'),
+            statHr: $('stat-hr'), hrIconBg: $('hr-icon-bg'), statSpo2: $('stat-spo2'),
+            statPresence: $('stat-presence'), presenceIconBg: $('presence-icon-bg'), statPresenceDist: $('stat-presence-dist'),
             statDistance: $('stat-distance'), statAltitude: $('stat-altitude'),
             statSys: $('stat-sys'), sysIconBg: $('sys-icon-bg'),
-            dotSensor: $('dot-sensor'), dotGps: $('dot-gps'),
+            dotSensor: $('dot-sensor'), dotAlcohol: $('dot-alcohol'), dotHr: $('dot-hr'), dotPresence: $('dot-presence'), dotGps: $('dot-gps'),
             mapLat: $('map-lat'), mapLon: $('map-lon'), mapSpeed: $('map-speed'),
             // Speedometer overlay
             speedoArc: $('speedo-arc'), speedoValue: $('speedo-value'), speedoMax: $('speedo-max'),
@@ -3614,6 +3718,134 @@
                 }
             }
 
+            // ── Alcohol (MQ-3) sensor ──
+            const alcMgl = d.alcohol_mgl || 0;
+            const alcSource = d.alcohol_source || 'none';
+            const hasAlcSensor = alcSource === 'MQ-3';
+
+            // Alcohol badge in navbar
+            if (hasAlcSensor) {
+                DOM.alcoholBadge.className = alcMgl > 0.15
+                    ? 'px-2.5 py-1 rounded-full text-[10px] font-semibold bg-red-50 text-red-600 border border-red-200'
+                    : 'px-2.5 py-1 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-600 border border-emerald-200';
+                DOM.alcoholBadgeIcon.textContent = alcMgl > 0.15 ? '🔴' : '🟢';
+                DOM.alcoholBadgeText.textContent = 'MQ-3: ' + alcMgl.toFixed(2) + ' mg/L';
+            } else {
+                DOM.alcoholBadge.className = 'px-2.5 py-1 rounded-full text-[10px] font-semibold bg-slate-50 text-slate-400 border border-slate-200';
+                DOM.alcoholBadgeIcon.textContent = '🔌';
+                DOM.alcoholBadgeText.textContent = 'MQ-3: No Sensor';
+            }
+
+            // Alcohol dot in System Status
+            if (DOM.dotAlcohol) DOM.dotAlcohol.className = hasAlcSensor
+                ? 'w-1.5 h-1.5 rounded-full bg-emerald-500'
+                : 'w-1.5 h-1.5 rounded-full bg-slate-300';
+
+            // Alcohol stat card
+            if (!hasAlcSensor) {
+                DOM.statAlcohol.textContent = '—';
+                DOM.statAlcohol.className = 'text-2xl font-bold text-slate-300';
+                DOM.alcBar.style.width = '0%';
+                DOM.alcBar.className = 'h-full rounded-full bg-slate-200 transition-all duration-500';
+                DOM.alcIconBg.className = 'w-7 h-7 rounded-lg bg-slate-50 flex items-center justify-center';
+            } else {
+                DOM.statAlcohol.textContent = alcMgl.toFixed(2);
+                const alcPct = Math.min(100, (alcMgl / 0.5) * 100);
+                DOM.alcBar.style.width = alcPct + '%';
+                if (alcMgl > 0.15) {
+                    DOM.statAlcohol.className = 'text-2xl font-bold text-red-600';
+                    DOM.alcBar.className = 'h-full rounded-full bg-red-500 transition-all duration-500';
+                    DOM.alcIconBg.className = 'w-7 h-7 rounded-lg bg-red-50 flex items-center justify-center';
+                } else if (alcMgl > 0.08) {
+                    DOM.statAlcohol.className = 'text-2xl font-bold text-amber-600';
+                    DOM.alcBar.className = 'h-full rounded-full bg-amber-400 transition-all duration-500';
+                    DOM.alcIconBg.className = 'w-7 h-7 rounded-lg bg-amber-50 flex items-center justify-center';
+                } else {
+                    DOM.statAlcohol.className = 'text-2xl font-bold text-slate-800';
+                    DOM.alcBar.className = 'h-full rounded-full bg-emerald-500 transition-all duration-500';
+                    DOM.alcIconBg.className = 'w-7 h-7 rounded-lg bg-sky-50 flex items-center justify-center';
+                }
+            }
+
+            // ── Heart Rate + SpO₂ (MAX30100) ──
+            const health = d.health || {};
+            const healthSource = d.health_source || 'none';
+            const hasHealthSensor = healthSource === 'MAX30100';
+            const hr = health.heart_rate || 0;
+            const spo2 = health.spo2 || 0;
+
+            // Health badge in navbar
+            if (hasHealthSensor) {
+                const hrDanger = hr < 50 || hr > 120;
+                const spo2Danger = spo2 > 0 && spo2 < 94;
+                const healthWarn = hrDanger || spo2Danger;
+                DOM.healthBadge.className = healthWarn
+                    ? 'px-2.5 py-1 rounded-full text-[10px] font-semibold bg-red-50 text-red-600 border border-red-200'
+                    : 'px-2.5 py-1 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-600 border border-emerald-200';
+                DOM.healthBadgeIcon.textContent = healthWarn ? '🔴' : '💚';
+                DOM.healthBadgeText.textContent = 'HR: ' + hr + ' bpm';
+            } else {
+                DOM.healthBadge.className = 'px-2.5 py-1 rounded-full text-[10px] font-semibold bg-slate-50 text-slate-400 border border-slate-200';
+                DOM.healthBadgeIcon.textContent = '🔌';
+                DOM.healthBadgeText.textContent = 'MAX30100: No Sensor';
+            }
+
+            // HR dot in System Status
+            if (DOM.dotHr) DOM.dotHr.className = hasHealthSensor
+                ? 'w-1.5 h-1.5 rounded-full bg-emerald-500'
+                : 'w-1.5 h-1.5 rounded-full bg-slate-300';
+
+            // Heart Rate stat card
+            if (!hasHealthSensor) {
+                DOM.statHr.textContent = '—';
+                DOM.statHr.className = 'text-2xl font-bold text-slate-300';
+                DOM.statSpo2.textContent = '— %';
+                DOM.hrIconBg.className = 'w-7 h-7 rounded-lg bg-slate-50 flex items-center justify-center';
+            } else {
+                DOM.statHr.textContent = hr;
+                DOM.statSpo2.textContent = spo2 + '%';
+                if (hr < 50 || hr > 120) {
+                    DOM.statHr.className = 'text-2xl font-bold text-red-600';
+                    DOM.hrIconBg.className = 'w-7 h-7 rounded-lg bg-red-50 flex items-center justify-center';
+                } else if (hr < 60 || hr > 100) {
+                    DOM.statHr.className = 'text-2xl font-bold text-amber-600';
+                    DOM.hrIconBg.className = 'w-7 h-7 rounded-lg bg-amber-50 flex items-center justify-center';
+                } else {
+                    DOM.statHr.className = 'text-2xl font-bold text-slate-800';
+                    DOM.hrIconBg.className = 'w-7 h-7 rounded-lg bg-rose-50 flex items-center justify-center';
+                }
+            }
+
+            // ── Presence (C4001 mmWave) ──
+            const presence = d.presence || {};
+            const presenceSource = d.presence_source || 'none';
+            const hasPresenceSensor = presenceSource === 'C4001';
+            const isPresent = presence.present || false;
+            const presenceDist = presence.distance || 0;
+
+            // Presence dot in System Status
+            if (DOM.dotPresence) DOM.dotPresence.className = hasPresenceSensor
+                ? 'w-1.5 h-1.5 rounded-full bg-emerald-500'
+                : 'w-1.5 h-1.5 rounded-full bg-slate-300';
+
+            // Presence stat card
+            if (!hasPresenceSensor) {
+                DOM.statPresence.textContent = '—';
+                DOM.statPresence.className = 'text-2xl font-bold text-slate-300';
+                if (DOM.statPresenceDist) DOM.statPresenceDist.textContent = '—';
+                DOM.presenceIconBg.className = 'w-7 h-7 rounded-lg bg-slate-50 flex items-center justify-center';
+            } else {
+                DOM.statPresence.textContent = isPresent ? 'YES' : 'NO';
+                if (DOM.statPresenceDist) DOM.statPresenceDist.textContent = presenceDist.toFixed(1) + ' m';
+                if (isPresent) {
+                    DOM.statPresence.className = 'text-2xl font-bold text-emerald-600';
+                    DOM.presenceIconBg.className = 'w-7 h-7 rounded-lg bg-emerald-50 flex items-center justify-center';
+                } else {
+                    DOM.statPresence.className = 'text-2xl font-bold text-amber-600';
+                    DOM.presenceIconBg.className = 'w-7 h-7 rounded-lg bg-amber-50 flex items-center justify-center';
+                }
+            }
+
             // System status
             if (danger) {
                 DOM.statSys.textContent = 'THREAT';
@@ -3709,6 +3941,10 @@
                 updateSafetyPage(d);
                 // Update CO₂ risk in real-time
                 if (d.co2_ppm) updateCo2Risk(d.co2_ppm);
+                // Update Alcohol risk in real-time
+                if (d.alcohol_mgl) updateAlcoholRisk(d.alcohol_mgl);
+                // Update Heart Rate risk in real-time
+                if (d.health) updateHealthRisk(d.health.heart_rate || 0, d.health.spo2 || 0);
             }
         }
 
@@ -4153,6 +4389,21 @@
             if (trkCo2Dot) trkCo2Dot.style.background = co2 > 1000 ? '#ef4444' : co2 > 700 ? '#f59e0b' : '#10b981';
             if (trkCo2Bar) trkCo2Bar.style.width = Math.min(100, (co2 / 1800) * 100) + '%';
             if (trkSpeedReading) trkSpeedReading.textContent = Math.round(displaySpeed) + ' km/h';
+
+
+            // New sensor footer indicators
+            const trkFooterAlc = $('trk-footer-alc');
+            const trkFooterAlcStatus = $('trk-footer-alc-status');
+            const trkFooterHr = $('trk-footer-hr');
+            const trkFooterHrStatus = $('trk-footer-hr-status');
+            const trkFooterPresence = $('trk-footer-presence');
+            const trkFooterPresenceStatus = $('trk-footer-presence-status');
+            if (trkFooterAlc) trkFooterAlc.style.background = (d.alcohol_source === 'MQ-3') ? '#10b981' : '#94a3b8';
+            if (trkFooterAlcStatus) trkFooterAlcStatus.textContent = (d.alcohol_source === 'MQ-3') ? (d.alcohol_mgl || 0).toFixed(2) : '—';
+            if (trkFooterHr) trkFooterHr.style.background = (d.health_source === 'MAX30100') ? '#10b981' : '#94a3b8';
+            if (trkFooterHrStatus) trkFooterHrStatus.textContent = (d.health_source === 'MAX30100') ? ((d.health?.heart_rate || 0) + ' bpm') : '—';
+            if (trkFooterPresence) trkFooterPresence.style.background = (d.presence_source === 'C4001') ? '#10b981' : '#94a3b8';
+            if (trkFooterPresenceStatus) trkFooterPresenceStatus.textContent = (d.presence_source === 'C4001') ? (d.presence?.present ? 'Yes' : 'No') : '—';
 
             // Footer
             const trkFooterGps = $('trk-footer-gps');
@@ -4652,7 +4903,9 @@
                     const yawnRisk = Math.min(100, ((tc.yawning || 0) / Math.max(1, total)) * 150);
                     const distractRisk = Math.min(100, (((tc.distraction || 0) + (tc.phone || 0) + (tc.looking_away || 0)) / Math.max(1, total)) * 180);
                     const co2Risk = 0; // from sensor, handled separately
-                    const overallRisk = Math.min(100, (drowsyRisk * 0.4 + yawnRisk * 0.2 + distractRisk * 0.3 + co2Risk * 0.1));
+                    const alcRisk = 0; // from MQ-3 sensor, handled separately
+                    const hrRisk = 0;  // from MAX30100 sensor, handled separately
+                    const overallRisk = Math.min(100, (drowsyRisk * 0.3 + yawnRisk * 0.15 + distractRisk * 0.25 + co2Risk * 0.1 + alcRisk * 0.1 + hrRisk * 0.1));
 
                     setRiskBar('sf-risk-drowsy-bar', 'sf-risk-drowsy-pct', drowsyRisk);
                     setRiskBar('sf-risk-yawn-bar', 'sf-risk-yawn-pct', yawnRisk);
@@ -4772,6 +5025,30 @@
         function updateCo2Risk(co2) {
             const risk = co2 > 1000 ? 90 : co2 > 700 ? 50 : co2 > 400 ? 15 : 0;
             setRiskBar('sf-risk-co2-bar', 'sf-risk-co2-pct', risk);
+        }
+
+        // ── Alcohol Risk (live from MQ-3) ──
+        function updateAlcoholRisk(alcMgl) {
+            const risk = alcMgl > 0.15 ? 95 : alcMgl > 0.08 ? 60 : alcMgl > 0.03 ? 20 : 0;
+            setRiskBar('sf-risk-alc-bar', 'sf-risk-alc-pct', risk);
+        }
+
+        // ── Heart Rate Risk (live from MAX30100) ──
+        function updateHealthRisk(hr, spo2) {
+            let hrRisk = 0;
+            if (hr > 0) {
+                if (hr < 50 || hr > 130) hrRisk = 90;
+                else if (hr < 55 || hr > 110) hrRisk = 55;
+                else if (hr < 60 || hr > 100) hrRisk = 25;
+            }
+            let spo2Risk = 0;
+            if (spo2 > 0) {
+                if (spo2 < 90) spo2Risk = 95;
+                else if (spo2 < 94) spo2Risk = 60;
+                else if (spo2 < 96) spo2Risk = 20;
+            }
+            const risk = Math.max(hrRisk, spo2Risk);
+            setRiskBar('sf-risk-hr-bar', 'sf-risk-hr-pct', risk);
         }
 
         // ═══════════════════════════════════════════════════════

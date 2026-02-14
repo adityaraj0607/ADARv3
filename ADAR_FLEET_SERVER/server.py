@@ -39,6 +39,8 @@ class GPSUpdate(BaseModel):
 class CO2SensorUpdate(BaseModel):
     co2_ppm: float
     raw_adc: Optional[float] = None
+    alcohol_mgl: Optional[float] = None        # MQ-3 alcohol level (mg/L)
+    alcohol_raw_adc: Optional[float] = None     # MQ-3 raw ADC value
     vehicle_id: Optional[str] = None
     sensor: Optional[str] = "MQ-135"
     reading: Optional[int] = None
@@ -55,6 +57,23 @@ class MPU6050Update(BaseModel):
     speed_kmh: float = 0.0   # integrated speed from ESP32
     g_force: float = 0.0     # total g-force magnitude
     vehicle_id: Optional[str] = None
+
+
+class HealthSensorUpdate(BaseModel):
+    """Heart rate + SpO2 from MAX30100 sensor on ESP32."""
+    heart_rate: float = 0.0   # beats per minute
+    spo2: float = 0.0         # blood oxygen percentage
+    vehicle_id: Optional[str] = None
+    sensor: Optional[str] = "MAX30100"
+
+
+class PresenceSensorUpdate(BaseModel):
+    """Human presence detection from C4001 mmWave 24GHz sensor."""
+    present: bool = False       # is a human detected
+    distance: float = 0.0      # distance to target (meters)
+    energy: int = 0             # signal energy / confidence
+    vehicle_id: Optional[str] = None
+    sensor: Optional[str] = "C4001"
 
 
 class TelemetrySnapshot(BaseModel):
@@ -206,13 +225,15 @@ class GPSStore:
 gps_store = GPSStore()
 
 
-# ── Sensor Store (receives real CO2 from ESP32/MQ-135) ────────────────
+# ── Sensor Store (receives real CO2 from MQ-135 + Alcohol from MQ-3) ──
 class SensorStore:
-    """Holds the latest real CO2 reading pushed from ESP32 MQ-135 sensor."""
+    """Holds the latest real CO2 + Alcohol readings pushed from ESP32."""
 
     def __init__(self) -> None:
         self.co2_ppm: Optional[float] = None
         self.raw_adc: Optional[float] = None
+        self.alcohol_mgl: Optional[float] = None
+        self.alcohol_raw_adc: Optional[float] = None
         self.sensor: str = "MQ-135"
         self.vehicle_id: Optional[str] = None
         self.reading_count: int = 0
@@ -223,6 +244,11 @@ class SensorStore:
         async with self.lock:
             self.co2_ppm = data.co2_ppm
             self.raw_adc = data.raw_adc
+            # MQ-3 alcohol fields (sent together with CO2)
+            if hasattr(data, 'alcohol_mgl') and data.alcohol_mgl is not None:
+                self.alcohol_mgl = data.alcohol_mgl
+            if hasattr(data, 'alcohol_raw_adc') and data.alcohol_raw_adc is not None:
+                self.alcohol_raw_adc = data.alcohol_raw_adc
             self.sensor = data.sensor or "MQ-135"
             self.vehicle_id = data.vehicle_id
             self.reading_count += 1
@@ -233,10 +259,16 @@ class SensorStore:
         """Sensor data is considered fresh if updated within last 5 seconds."""
         return (time.time() - self.updated_at) < 5.0
 
+    @property
+    def has_alcohol(self) -> bool:
+        return self.alcohol_mgl is not None and self.is_fresh
+
     def to_dict(self) -> dict:
         return {
             "co2_ppm": self.co2_ppm,
             "raw_adc": self.raw_adc,
+            "alcohol_mgl": self.alcohol_mgl,
+            "alcohol_raw_adc": self.alcohol_raw_adc,
             "sensor": self.sensor,
             "fresh": self.is_fresh,
             "readings": self.reading_count,
@@ -292,6 +324,87 @@ class IMUStore:
 
 
 imu_store = IMUStore()
+
+
+# ── Health Store (receives HR + SpO2 from ESP32/MAX30100) ─────────────
+class HealthStore:
+    """Holds the latest heart rate + SpO2 from MAX30100 sensor."""
+
+    def __init__(self) -> None:
+        self.heart_rate: float = 0.0
+        self.spo2: float = 0.0
+        self.sensor: str = "MAX30100"
+        self.vehicle_id: Optional[str] = None
+        self.reading_count: int = 0
+        self.updated_at: float = 0
+        self.lock = asyncio.Lock()
+
+    async def update(self, data: HealthSensorUpdate) -> None:
+        async with self.lock:
+            self.heart_rate = data.heart_rate
+            self.spo2 = data.spo2
+            self.sensor = data.sensor or "MAX30100"
+            self.vehicle_id = data.vehicle_id
+            self.reading_count += 1
+            self.updated_at = time.time()
+
+    @property
+    def is_fresh(self) -> bool:
+        return (time.time() - self.updated_at) < 5.0
+
+    def to_dict(self) -> dict:
+        return {
+            "heart_rate": self.heart_rate,
+            "spo2": self.spo2,
+            "sensor": self.sensor,
+            "fresh": self.is_fresh,
+            "readings": self.reading_count,
+        }
+
+
+health_store = HealthStore()
+
+
+# ── Presence Store (receives C4001 mmWave 24GHz data) ─────────────────
+class PresenceStore:
+    """Holds the latest human presence data from C4001 mmWave sensor."""
+
+    def __init__(self) -> None:
+        self.present: bool = False
+        self.distance: float = 0.0
+        self.energy: int = 0
+        self.sensor: str = "C4001"
+        self.vehicle_id: Optional[str] = None
+        self.reading_count: int = 0
+        self.updated_at: float = 0
+        self.lock = asyncio.Lock()
+
+    async def update(self, data: PresenceSensorUpdate) -> None:
+        async with self.lock:
+            self.present = data.present
+            self.distance = data.distance
+            self.energy = data.energy
+            self.sensor = data.sensor or "C4001"
+            self.vehicle_id = data.vehicle_id
+            self.reading_count += 1
+            self.updated_at = time.time()
+
+    @property
+    def is_fresh(self) -> bool:
+        return (time.time() - self.updated_at) < 5.0
+
+    def to_dict(self) -> dict:
+        return {
+            "present": self.present,
+            "distance": self.distance,
+            "energy": self.energy,
+            "sensor": self.sensor,
+            "fresh": self.is_fresh,
+            "readings": self.reading_count,
+        }
+
+
+presence_store = PresenceStore()
 
 
 # ── Simulation Engine ─────────────────────────────────────────────────
@@ -406,8 +519,14 @@ class SimulationEngine:
             "location": location,
             "gps_source": "browser" if use_real_gps else "none",
             "co2_source": "MQ-135" if use_real_co2 else "none",
+            "alcohol_mgl": sensor_store.alcohol_mgl if sensor_store.has_alcohol else 0.0,
+            "alcohol_source": "MQ-3" if sensor_store.has_alcohol else "none",
             "imu": imu_store.to_dict() if imu_store.is_fresh else None,
             "imu_source": "MPU6050" if imu_store.is_fresh else "none",
+            "health": health_store.to_dict() if health_store.is_fresh else None,
+            "health_source": "MAX30100" if health_store.is_fresh else "none",
+            "presence": presence_store.to_dict() if presence_store.is_fresh else None,
+            "presence_source": "C4001" if presence_store.is_fresh else "none",
             "is_simulation": True,
         }
 
@@ -462,6 +581,8 @@ async def api_status():
         "gps": gps_store.to_dict(),
         "sensor": sensor_store.to_dict(),
         "imu": imu_store.to_dict(),
+        "health": health_store.to_dict(),
+        "presence": presence_store.to_dict(),
         "uptime": round(time.process_time(), 2),
     }
 
@@ -479,12 +600,12 @@ async def receive_gps(gps: GPSUpdate):
 @app.post("/api/sensor")
 async def receive_sensor(data: CO2SensorUpdate):
     """
-    Receive real CO2 PPM from ESP32 MQ-135 sensor over WiFi.
-    The simulation engine will use this instead of fake CO2.
+    Receive real CO2 PPM + Alcohol from ESP32 MQ-135/MQ-3 sensors over WiFi.
     """
     await sensor_store.update(data)
-    print(f"[SENSOR] CO₂={data.co2_ppm:.1f} PPM  ADC={data.raw_adc}  (#{sensor_store.reading_count})")
-    return {"ok": True, "source": data.sensor, "co2_ppm": data.co2_ppm}
+    alc_msg = f"  Alcohol={data.alcohol_mgl:.3f} mg/L" if data.alcohol_mgl else ""
+    print(f"[SENSOR] CO₂={data.co2_ppm:.1f} PPM  ADC={data.raw_adc}{alc_msg}  (#{sensor_store.reading_count})")
+    return {"ok": True, "source": data.sensor, "co2_ppm": data.co2_ppm, "alcohol_mgl": data.alcohol_mgl}
 
 
 @app.post("/api/imu")
@@ -501,6 +622,39 @@ async def receive_imu(data: MPU6050Update):
 async def get_imu():
     """Return latest IMU readings."""
     return imu_store.to_dict()
+
+
+@app.post("/api/health")
+async def receive_health(data: HealthSensorUpdate):
+    """
+    Receive heart rate + SpO2 from ESP32 MAX30100 pulse oximeter.
+    """
+    await health_store.update(data)
+    print(f"[HEALTH] HR={data.heart_rate:.0f} bpm  SpO₂={data.spo2:.0f}%  (#{health_store.reading_count})")
+    return {"ok": True, "heart_rate": data.heart_rate, "spo2": data.spo2}
+
+
+@app.get("/api/health")
+async def get_health():
+    """Return latest heart rate + SpO2 readings."""
+    return health_store.to_dict()
+
+
+@app.post("/api/presence")
+async def receive_presence(data: PresenceSensorUpdate):
+    """
+    Receive presence detection from C4001 mmWave 24GHz sensor.
+    """
+    await presence_store.update(data)
+    status = "PRESENT" if data.present else "EMPTY"
+    print(f"[PRESENCE] {status}  dist={data.distance:.2f}m  energy={data.energy}  (#{presence_store.reading_count})")
+    return {"ok": True, "present": data.present, "distance": data.distance}
+
+
+@app.get("/api/presence")
+async def get_presence():
+    """Return latest presence detection data."""
+    return presence_store.to_dict()
 
 
 @app.get("/api/history/{vehicle_id}")
@@ -1298,13 +1452,21 @@ async def ws_vehicle(websocket: WebSocket, vehicle_id: str):
                     data.setdefault("location", None)
                     data.setdefault("gps_source", "none")
 
-                # ── Enrich with CO2 from sensor_store (ESP32 sends CO2 separately) ──
+                # ── Enrich with CO2 + Alcohol from sensor_store ──
                 if sensor_store.is_fresh and sensor_store.co2_ppm is not None:
                     data["co2_ppm"] = sensor_store.co2_ppm
                     data["co2_source"] = "MQ-135"
                 else:
                     data.setdefault("co2_ppm", 0.0)
                     data.setdefault("co2_source", "none")
+
+                # Alcohol (MQ-3) — piggybacks on sensor_store
+                if sensor_store.has_alcohol:
+                    data["alcohol_mgl"] = sensor_store.alcohol_mgl
+                    data["alcohol_source"] = "MQ-3"
+                else:
+                    data.setdefault("alcohol_mgl", 0.0)
+                    data.setdefault("alcohol_source", "none")
 
                 # ── Enrich with IMU from imu_store (ESP32 MPU6050) ──
                 if imu_store.is_fresh:
@@ -1315,6 +1477,22 @@ async def ws_vehicle(websocket: WebSocket, vehicle_id: str):
                         data["speed_kmh"] = round(imu_store.speed_kmh, 1)
                 else:
                     data.setdefault("imu_source", "none")
+
+                # ── Enrich with Health from health_store (MAX30100) ──
+                if health_store.is_fresh:
+                    data["health"] = health_store.to_dict()
+                    data["health_source"] = "MAX30100"
+                else:
+                    data.setdefault("health", None)
+                    data.setdefault("health_source", "none")
+
+                # ── Enrich with Presence from presence_store (C4001) ──
+                if presence_store.is_fresh:
+                    data["presence"] = presence_store.to_dict()
+                    data["presence_source"] = "C4001"
+                else:
+                    data.setdefault("presence", None)
+                    data.setdefault("presence_source", "none")
 
                 await manager.broadcast(vehicle_id, data)
             except json.JSONDecodeError:
