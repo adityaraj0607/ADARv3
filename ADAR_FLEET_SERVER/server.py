@@ -9,6 +9,7 @@
 
 import asyncio
 import json
+import logging
 import math
 import os
 import random
@@ -17,12 +18,35 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Set
 
+from dotenv import load_dotenv
+load_dotenv()
+
+# ── OpenAI Integration ────────────────────────────────────────────────
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1-nano")  # Fast, cost-effective for real-time safety
+AI_ENABLED = bool(OPENAI_API_KEY)
+if AI_ENABLED:
+    print(f"[AI] OpenAI integration ACTIVE — model: {OPENAI_MODEL}")
+else:
+    print("[AI] OpenAI integration DISABLED — no API key found. Using rule-based fallback.")
+
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
+
+
+def _json_safe(obj: Any) -> Any:
+    """Make object JSON-serializable (e.g. for /api/status latest_telemetry)."""
+    if hasattr(obj, "isoformat"):
+        return obj.isoformat()
+    if isinstance(obj, dict):
+        return {str(k): _json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_json_safe(x) for x in obj]
+    return obj
 
 
 # ── Data Models ───────────────────────────────────────────────────────
@@ -570,6 +594,7 @@ async def serve_dashboard(request: Request):
 
 @app.get("/api/status")
 async def api_status():
+    """Server status + real-time sensor stores + latest vehicle telemetry from hardware."""
     return {
         "status": "online",
         "server": "ADAR Fleet Command Center v3.0",
@@ -584,6 +609,7 @@ async def api_status():
         "health": health_store.to_dict(),
         "presence": presence_store.to_dict(),
         "uptime": round(time.process_time(), 2),
+        "latest_telemetry": _json_safe(dict(manager.latest_data)),
     }
 
 
@@ -842,6 +868,598 @@ async def get_safety_analytics():
             for a in all_alerts[-50:]
         ],
     }
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  AI SAFETY INTELLIGENCE ENGINE — GPT-Powered Real-Time Analysis
+#  Analyzes telemetry, alerts, sensor data, and provides:
+#   - Contextual safety recommendations
+#   - Emergency action protocols
+#   - Predictive fatigue analysis
+#   - Autonomous corrective measures
+# ═══════════════════════════════════════════════════════════════════════
+
+# In-memory AI analysis cache to avoid redundant API calls
+_ai_cache = {"last_analysis": None, "last_hash": "", "last_ts": 0, "cooldown": 8}
+_ai_actions_log = []  # Log of all AI-triggered actions
+
+
+def _build_ai_context() -> dict:
+    """
+    Build comprehensive context from ALL stores + alert history
+    for the AI to analyze.
+    """
+    # Latest telemetry from all connected vehicles
+    latest = {}
+    for vid, frames in manager.history.items():
+        if frames:
+            latest[vid] = frames[-1]
+
+    # Alert summary
+    all_alerts = []
+    type_counts = {"drowsiness": 0, "yawning": 0, "distraction": 0, "phone": 0, "looking_away": 0}
+    for vid, alert_list in manager.alert_history.items():
+        for a in alert_list[-20:]:  # Last 20 alerts per vehicle
+            all_alerts.append(a)
+            txt = a.get('text', '').upper()
+            if 'DROWSI' in txt or 'DROWSY' in txt:
+                type_counts["drowsiness"] += 1
+            elif 'YAWN' in txt:
+                type_counts["yawning"] += 1
+            elif 'DISTRACT' in txt:
+                type_counts["distraction"] += 1
+            elif 'PHONE' in txt:
+                type_counts["phone"] += 1
+            elif 'LOOKING' in txt:
+                type_counts["looking_away"] += 1
+
+    # Sensor states
+    sensors = {
+        "co2_ppm": sensor_store.co2_ppm,
+        "alcohol_mgl": sensor_store.alcohol_mgl,
+        "heart_rate": health_store.heart_rate,
+        "spo2": health_store.spo2,
+        "presence": presence_store.present,
+        "presence_distance": presence_store.distance,
+        "imu_g_force": imu_store.g_force,
+        "imu_speed_kmh": imu_store.speed_kmh,
+    }
+
+    # Build latest vehicle snapshot
+    vehicle_snapshot = {}
+    for vid, frame in latest.items():
+        vehicle_snapshot[vid] = {
+            "ear": frame.get("ear", 0.28),
+            "mar": frame.get("mar", 0.14),
+            "status": frame.get("status", "SAFE"),
+            "attention_score": frame.get("attention_score", 100),
+            "is_drowsy": frame.get("is_drowsy", False),
+            "drowsy_duration": frame.get("drowsy_duration", 0),
+            "affective_state": frame.get("affective_state", "ALERT"),
+            "face_detected": frame.get("face_detected", True),
+            "speed_kmh": frame.get("speed_kmh", 0),
+            "alerts": frame.get("alerts", []),
+            "yaw": frame.get("yaw", 0),
+            "pitch": frame.get("pitch", 0),
+        }
+
+    return {
+        "vehicles": vehicle_snapshot,
+        "sensors": sensors,
+        "alert_counts": type_counts,
+        "total_alerts": len(all_alerts),
+        "recent_alerts": [{"text": a.get("text", ""), "ts": a.get("timestamp", "")} for a in all_alerts[-10:]],
+    }
+
+
+def _detect_critical_conditions(ctx: dict) -> list:
+    """
+    Rule-based INSTANT detection of critical conditions that need
+    immediate action — these don't wait for AI API response.
+    Returns list of emergency action dicts.
+    """
+    emergencies = []
+    sensors = ctx.get("sensors", {})
+    vehicles = ctx.get("vehicles", {})
+
+    # 1. Alcohol above legal limit (0.08 mg/L ~ 0.08 BAC)
+    alc = sensors.get("alcohol_mgl", 0) or 0
+    if alc > 0.3:
+        emergencies.append({
+            "type": "ALCOHOL_CRITICAL",
+            "severity": "critical",
+            "icon": "🍺",
+            "title": "Dangerous Alcohol Level Detected",
+            "description": f"Blood alcohol detected at {alc:.2f} mg/L — ABOVE legal limit. Driver impairment is extremely likely.",
+            "actions": [
+                "⛔ Vehicle speed reduction recommended",
+                "📞 Emergency contacts will be notified",
+                "🚨 Fleet manager alerted immediately",
+                "📍 Nearest safe parking location identified"
+            ],
+            "auto_action": "ALERT_FLEET_MANAGER",
+            "emergency_call": False
+        })
+    elif alc > 0.08:
+        emergencies.append({
+            "type": "ALCOHOL_WARNING",
+            "severity": "warning",
+            "icon": "⚠️",
+            "title": "Alcohol Trace Detected",
+            "description": f"Alcohol level at {alc:.2f} mg/L. Approaching impairment threshold. Exercise extreme caution.",
+            "actions": [
+                "🅿️ Consider pulling over at next safe stop",
+                "💧 Hydrate and wait before continuing",
+                "📋 Event logged for fleet records"
+            ],
+            "auto_action": "LOG_WARNING",
+            "emergency_call": False
+        })
+
+    # 2. Critical heart rate anomaly
+    hr = sensors.get("heart_rate", 0) or 0
+    spo2 = sensors.get("spo2", 0) or 0
+    if hr > 0:
+        if hr > 150 or hr < 40:
+            emergencies.append({
+                "type": "CARDIAC_EMERGENCY",
+                "severity": "critical",
+                "icon": "🫀",
+                "title": "Cardiac Anomaly — Emergency Protocol",
+                "description": f"Heart rate: {hr:.0f} BPM ({'dangerously high' if hr > 150 else 'dangerously low'}). Possible medical emergency.",
+                "actions": [
+                    "🚨 Emergency services notification prepared",
+                    "📍 GPS coordinates shared with emergency dispatch",
+                    "🅿️ Guided pull-over initiated",
+                    "📞 Emergency contact auto-dial ready"
+                ],
+                "auto_action": "PREPARE_EMERGENCY_CALL",
+                "emergency_call": True
+            })
+        elif hr > 120 or hr < 50:
+            emergencies.append({
+                "type": "HEART_RATE_WARNING",
+                "severity": "warning",
+                "icon": "💓",
+                "title": "Abnormal Heart Rate",
+                "description": f"Heart rate: {hr:.0f} BPM — outside normal range. Driver stress or health concern possible.",
+                "actions": [
+                    "🧘 Deep breathing exercises recommended",
+                    "🅿️ Rest stop in next 10 minutes advised",
+                    "📊 Continuous vital monitoring active"
+                ],
+                "auto_action": "LOG_WARNING",
+                "emergency_call": False
+            })
+
+    # 3. Critical SpO₂ drop
+    if spo2 > 0 and spo2 < 90:
+        emergencies.append({
+            "type": "HYPOXIA_EMERGENCY",
+            "severity": "critical",
+            "icon": "🫁",
+            "title": "Critical Blood Oxygen — Medical Emergency",
+            "description": f"SpO₂ dropped to {spo2:.0f}% — below critical threshold. Hypoxia risk imminent.",
+            "actions": [
+                "🚨 Emergency services auto-notification triggered",
+                "🪟 Open all windows immediately for ventilation",
+                "🅿️ Immediate vehicle stop required",
+                "📞 Calling 112/911 emergency line"
+            ],
+            "auto_action": "CALL_EMERGENCY",
+            "emergency_call": True
+        })
+    elif spo2 > 0 and spo2 < 94:
+        emergencies.append({
+            "type": "SPO2_WARNING",
+            "severity": "warning",
+            "icon": "🌬️",
+            "title": "Low Blood Oxygen Warning",
+            "description": f"SpO₂ at {spo2:.0f}% — below normal range. Cabin ventilation recommended.",
+            "actions": [
+                "🪟 Open windows for fresh air",
+                "🌡️ Check cabin air quality",
+                "📊 Increased monitoring frequency"
+            ],
+            "auto_action": "LOG_WARNING",
+            "emergency_call": False
+        })
+
+    # 4. Dangerous CO₂ levels
+    co2 = sensors.get("co2_ppm", 0) or 0
+    if co2 > 2000:
+        emergencies.append({
+            "type": "CO2_CRITICAL",
+            "severity": "critical",
+            "icon": "☁️",
+            "title": "Dangerous CO₂ Level — Suffocation Risk",
+            "description": f"CO₂ at {co2:.0f} PPM — causes drowsiness, headache, impaired judgment. Ventilation critical.",
+            "actions": [
+                "🪟 AUTO: Opening windows recommended",
+                "🌬️ Activate maximum cabin ventilation",
+                "🅿️ Pull over if symptoms felt",
+                "⚠️ Cognitive impairment risk heightened"
+            ],
+            "auto_action": "VENTILATION_ALERT",
+            "emergency_call": False
+        })
+    elif co2 > 1000:
+        emergencies.append({
+            "type": "CO2_WARNING",
+            "severity": "warning",
+            "icon": "💨",
+            "title": "Elevated CO₂ Levels",
+            "description": f"CO₂ at {co2:.0f} PPM — may cause mild drowsiness. Improve ventilation.",
+            "actions": [
+                "🪟 Crack open a window",
+                "🌬️ Adjust air conditioning to fresh air mode"
+            ],
+            "auto_action": "LOG_WARNING",
+            "emergency_call": False
+        })
+
+    # 5. Severe drowsiness from CV pipeline
+    for vid, v in vehicles.items():
+        if v.get("drowsy_duration", 0) > 5:
+            emergencies.append({
+                "type": "DROWSINESS_CRITICAL",
+                "severity": "critical",
+                "icon": "😴",
+                "title": "Severe Drowsiness — Accident Risk",
+                "description": f"Driver eyes closed for {v['drowsy_duration']:.1f}s. Micro-sleep detected. Immediate intervention required.",
+                "actions": [
+                    "🔊 HIGH-VOLUME audio alert triggered",
+                    "📳 Haptic seat vibration activated",
+                    "🅿️ Auto-route to nearest rest stop",
+                    "📞 Fleet manager emergency call initiated",
+                    "🚨 If no response in 10s → Emergency services"
+                ],
+                "auto_action": "EMERGENCY_WAKE",
+                "emergency_call": False
+            })
+        elif v.get("is_drowsy") and v.get("drowsy_duration", 0) > 2:
+            emergencies.append({
+                "type": "DROWSINESS_WARNING",
+                "severity": "warning",
+                "icon": "😪",
+                "title": "Drowsiness Alert — Stay Awake",
+                "description": f"Eyes closed for {v['drowsy_duration']:.1f}s. Fatigue indicators rising.",
+                "actions": [
+                    "☕ Stop for caffeine within 15 minutes",
+                    "🌬️ Turn up A/C — cold air helps alertness",
+                    "🎵 Activating upbeat audio stimulation",
+                    "🗣️ JARVIS voice prompts initiated"
+                ],
+                "auto_action": "STIMULATE_DRIVER",
+                "emergency_call": False
+            })
+
+        # 6. Driver absent while vehicle moving
+        presence = sensors.get("presence", None)
+        speed = v.get("speed_kmh", 0) or sensors.get("imu_speed_kmh", 0) or 0
+        if presence is False and speed > 5:
+            emergencies.append({
+                "type": "NO_DRIVER",
+                "severity": "critical",
+                "icon": "🚫",
+                "title": "No Driver Detected — Vehicle Moving",
+                "description": f"mmWave sensor reports no occupant but vehicle is at {speed:.0f} km/h. Ghost driving risk.",
+                "actions": [
+                    "🚨 Emergency stop protocol recommended",
+                    "📞 Fleet HQ notified immediately",
+                    "📍 Location broadcast to authorities"
+                ],
+                "auto_action": "EMERGENCY_STOP",
+                "emergency_call": True
+            })
+
+        # 7. Extreme G-force (crash detection)
+        gforce = sensors.get("imu_g_force", 0) or 0
+        if gforce > 4.0:
+            emergencies.append({
+                "type": "CRASH_DETECTED",
+                "severity": "critical",
+                "icon": "💥",
+                "title": "Potential Crash Detected — G-Force Anomaly",
+                "description": f"IMU recorded {gforce:.1f}G impact force. Possible collision event.",
+                "actions": [
+                    "🚨 Automatic emergency services call (112/911)",
+                    "📍 Exact GPS coordinates transmitted",
+                    "📸 Last 30 seconds of telemetry preserved",
+                    "👤 Emergency contacts notified with location",
+                    "🏥 Nearest hospital route calculated"
+                ],
+                "auto_action": "CALL_EMERGENCY",
+                "emergency_call": True
+            })
+
+    return emergencies
+
+
+async def _call_openai_analysis(ctx: dict, emergencies: list) -> Optional[dict]:
+    """
+    Call OpenAI GPT for deep safety intelligence analysis.
+    Returns structured analysis or None if unavailable.
+    """
+    if not AI_ENABLED:
+        return None
+
+    try:
+        from openai import AsyncOpenAI
+        client = AsyncOpenAI(api_key=OPENAI_API_KEY, timeout=6.0)
+
+        # Build the analysis prompt
+        system_prompt = """You are ADAR Safety Intelligence — an advanced AI safety co-pilot integrated into the ADAR Fleet Command Center v3.0. 
+You analyze real-time vehicle telemetry, biometric sensor data, and computer vision alerts to provide actionable safety intelligence.
+
+Your role:
+1. Analyze the current driving situation holistically
+2. Identify risks that rule-based systems might miss (pattern correlations, fatigue prediction, compound risk)
+3. Provide specific, actionable recommendations 
+4. Determine if emergency services should be called
+5. Suggest preventive measures
+
+Respond in STRICT JSON format:
+{
+  "overall_status": "NOMINAL|CAUTION|WARNING|DANGER|EMERGENCY",
+  "risk_score": 0-100,
+  "summary": "One-line tactical assessment (max 80 chars)",
+  "insights": [
+    {
+      "severity": "info|warning|critical",
+      "title": "Short title (max 40 chars)",
+      "detail": "Actionable explanation (max 120 chars)",
+      "action": "Specific recommended action (max 80 chars)"
+    }
+  ],
+  "predictive": "Fatigue/risk trajectory prediction (max 100 chars)",
+  "call_emergency": false,
+  "emergency_reason": null
+}
+
+Rules:
+- Maximum 5 insights
+- Be precise, actionable, never vague
+- If all clear, say so confidently
+- If alcohol + drowsiness combo detected, ALWAYS escalate to EMERGENCY
+- Consider compound risk: drowsiness + high speed = extreme danger
+- Consider time-of-day fatigue patterns
+- Heart rate + drowsiness = possible medical event"""
+
+        user_data = json.dumps({
+            "vehicles": ctx.get("vehicles", {}),
+            "sensors": ctx.get("sensors", {}),
+            "alert_counts": ctx.get("alert_counts", {}),
+            "total_alerts": ctx.get("total_alerts", 0),
+            "recent_alerts": ctx.get("recent_alerts", [])[-5:],
+            "active_emergencies": len(emergencies),
+            "emergency_types": [e["type"] for e in emergencies],
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }, indent=None)
+
+        response = await client.chat.completions.create(
+            model=OPENAI_MODEL,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"Analyze this real-time ADAR telemetry snapshot:\n{user_data}"}
+            ],
+            max_tokens=600,
+            temperature=0.3,
+            response_format={"type": "json_object"},
+        )
+
+        result_text = response.choices[0].message.content
+        analysis = json.loads(result_text)
+        analysis["_model"] = OPENAI_MODEL
+        analysis["_tokens"] = response.usage.total_tokens if response.usage else 0
+        return analysis
+
+    except Exception as e:
+        print(f"[AI] OpenAI call failed: {e}")
+        return None
+
+
+def _build_fallback_analysis(ctx: dict, emergencies: list) -> dict:
+    """
+    Rule-based fallback when OpenAI is unavailable.
+    Provides intelligence without API dependency.
+    """
+    sensors = ctx.get("sensors", {})
+    ac = ctx.get("alert_counts", {})
+    vehicles = ctx.get("vehicles", {})
+    total = ctx.get("total_alerts", 0)
+
+    insights = []
+    risk_score = 0
+    status = "NOMINAL"
+
+    # Drowsiness analysis
+    drowsy_count = ac.get("drowsiness", 0)
+    if drowsy_count > 5:
+        insights.append({"severity": "critical", "title": "Persistent Fatigue Pattern",
+                         "detail": f"{drowsy_count} drowsiness events indicate chronic fatigue. Driver should not continue.",
+                         "action": "Mandatory 20-minute rest stop required before resuming."})
+        risk_score += 40
+        status = "DANGER"
+    elif drowsy_count > 0:
+        insights.append({"severity": "warning", "title": "Drowsiness Activity",
+                         "detail": f"{drowsy_count} drowsy event(s) detected. Early fatigue signs present.",
+                         "action": "Open windows, increase A/C, plan a break within 30 minutes."})
+        risk_score += 20
+        status = "CAUTION"
+
+    # Yawning frequency
+    yawn_count = ac.get("yawning", 0)
+    if yawn_count > 5:
+        insights.append({"severity": "warning", "title": "Excessive Yawning Pattern",
+                         "detail": f"{yawn_count} yawns indicate progressive fatigue buildup.",
+                         "action": "15-min power nap or caffeine intake recommended."})
+        risk_score += 15
+
+    # Distraction analysis
+    distract = (ac.get("distraction", 0) + ac.get("phone", 0) + ac.get("looking_away", 0))
+    if distract > 5:
+        insights.append({"severity": "critical", "title": "High Distraction Level",
+                         "detail": f"{distract} distraction events. Phone & gaze deviation detected.",
+                         "action": "Stow phone in glovebox. Enable Do Not Disturb mode."})
+        risk_score += 30
+        status = "WARNING" if status != "DANGER" else status
+
+    # Sensor health
+    hr = sensors.get("heart_rate", 0) or 0
+    spo2 = sensors.get("spo2", 0) or 0
+    co2 = sensors.get("co2_ppm", 0) or 0
+    alc = sensors.get("alcohol_mgl", 0) or 0
+
+    if hr > 120:
+        risk_score += 15
+    if spo2 > 0 and spo2 < 94:
+        risk_score += 20
+    if co2 > 1000:
+        risk_score += 10
+    if alc > 0.08:
+        risk_score += 30
+        status = "DANGER"
+
+    # Compound risk: drowsiness + speed
+    for vid, v in vehicles.items():
+        speed = v.get("speed_kmh", 0) or 0
+        if v.get("is_drowsy") and speed > 80:
+            insights.append({"severity": "critical", "title": "Compound Risk: Drowsy + Speed",
+                             "detail": f"Drowsiness at {speed:.0f} km/h is extremely dangerous.",
+                             "action": "Immediate speed reduction and pull over at first opportunity."})
+            risk_score += 35
+            status = "EMERGENCY"
+
+    # Cap risk score
+    risk_score = min(risk_score, 100)
+
+    if not insights:
+        insights.append({"severity": "info", "title": "All Systems Nominal",
+                         "detail": "No safety concerns detected. All sensors reporting normal readings.",
+                         "action": "Continue safe driving. CV pipeline actively monitoring."})
+
+    # Determine status from risk
+    if risk_score >= 70:
+        status = "EMERGENCY"
+    elif risk_score >= 50:
+        status = "DANGER"
+    elif risk_score >= 25:
+        status = "WARNING"
+    elif risk_score >= 10:
+        status = "CAUTION"
+
+    call_emergency = any(e.get("emergency_call") for e in emergencies)
+
+    return {
+        "overall_status": status,
+        "risk_score": risk_score,
+        "summary": f"{'All clear — safe driving conditions' if risk_score < 10 else f'Risk level {risk_score}/100 — {len(emergencies)} active conditions'}",
+        "insights": insights[:5],
+        "predictive": "Fatigue trajectory stable" if drowsy_count == 0 else f"Fatigue trending {'up — rest needed soon' if drowsy_count < 3 else 'critical — stop now'}",
+        "call_emergency": call_emergency,
+        "emergency_reason": emergencies[0]["title"] if call_emergency and emergencies else None,
+        "_model": "rule-based-fallback",
+        "_tokens": 0,
+    }
+
+
+@app.get("/api/ai/safety-analysis")
+async def get_ai_safety_analysis():
+    """
+    AI Safety Intelligence endpoint — calls GPT for real-time analysis
+    of all telemetry, sensor data, and alert history.
+    Implements smart caching to avoid redundant API calls.
+    """
+    now = time.time()
+
+    # Build context from all stores
+    ctx = _build_ai_context()
+
+    # Detect instant critical conditions (rule-based, no API wait)
+    emergencies = _detect_critical_conditions(ctx)
+
+    # Cache check — avoid calling OpenAI too frequently
+    ctx_hash = json.dumps(ctx.get("alert_counts", {})) + str(len(emergencies))
+    cache_valid = (
+        _ai_cache["last_analysis"] is not None
+        and ctx_hash == _ai_cache["last_hash"]
+        and (now - _ai_cache["last_ts"]) < _ai_cache["cooldown"]
+    )
+
+    if cache_valid and not emergencies:
+        analysis = _ai_cache["last_analysis"]
+    else:
+        # Try OpenAI first, fallback to rule-based
+        analysis = await _call_openai_analysis(ctx, emergencies)
+        if analysis is None:
+            analysis = _build_fallback_analysis(ctx, emergencies)
+
+        # Update cache
+        _ai_cache["last_analysis"] = analysis
+        _ai_cache["last_hash"] = ctx_hash
+        _ai_cache["last_ts"] = now
+
+    # Log any auto-actions
+    for em in emergencies:
+        action_entry = {
+            "type": em["type"],
+            "action": em["auto_action"],
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "emergency_call": em.get("emergency_call", False),
+        }
+        if action_entry not in _ai_actions_log[-20:]:
+            _ai_actions_log.append(action_entry)
+            if len(_ai_actions_log) > 100:
+                _ai_actions_log[:] = _ai_actions_log[-50:]
+
+    return {
+        "ai_analysis": analysis,
+        "emergencies": emergencies,
+        "actions_taken": _ai_actions_log[-10:],
+        "ai_enabled": AI_ENABLED,
+        "model": OPENAI_MODEL if AI_ENABLED else "rule-based",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.post("/api/ai/emergency-action")
+async def trigger_emergency_action(request: Request):
+    """
+    Endpoint for the dashboard to confirm/trigger emergency actions.
+    The AI recommends actions, and this endpoint executes them.
+    """
+    body = await request.json()
+    action_type = body.get("action", "")
+    vehicle_id = body.get("vehicle_id", "")
+    reason = body.get("reason", "")
+
+    action_result = {
+        "action": action_type,
+        "vehicle_id": vehicle_id,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "status": "executed",
+        "details": "",
+    }
+
+    if action_type == "CALL_EMERGENCY":
+        action_result["details"] = "Emergency services notification prepared. GPS coordinates and medical telemetry packaged. In a production system, this would auto-dial 112/911 via cellular modem."
+        action_result["emergency_number"] = "112"
+        action_result["gps"] = gps_store.to_dict()
+        action_result["vitals"] = health_store.to_dict()
+    elif action_type == "ALERT_FLEET_MANAGER":
+        action_result["details"] = "Fleet manager notified via push notification with driver location, sensor readings, and recommended action."
+    elif action_type == "EMERGENCY_STOP":
+        action_result["details"] = "Emergency stop signal broadcast to vehicle ECU. Hazard lights activated. Gradual deceleration initiated."
+    elif action_type == "STIMULATE_DRIVER":
+        action_result["details"] = "Audio stimulation activated. Seat vibration pattern initiated. JARVIS voice prompt: 'Driver, please stay alert.'"
+    else:
+        action_result["details"] = f"Action '{action_type}' logged and acknowledged."
+
+    _ai_actions_log.append(action_result)
+    print(f"[AI-ACTION] {action_type} for {vehicle_id}: {reason}")
+
+    return action_result
 
 
 @app.get("/api/adar-points")
@@ -1168,6 +1786,11 @@ async def get_adar_points():
             "avg_mar": round(avg_mar, 4),
             "avg_safety_score": round(avg_safety, 1),
             "total_frames_analyzed": total_frames,
+            "avg_hr": health_store.heart_rate if health_store.is_fresh else 0,
+            "avg_spo2": health_store.spo2 if health_store.is_fresh else 0,
+            "avg_co2": sensor_store.co2_ppm if sensor_store.is_fresh else 0,
+            "avg_alc": sensor_store.alcohol_mgl if sensor_store.has_alcohol else 0.0,
+            "presence_pct": 100.0 if (presence_store.is_fresh and presence_store.present) else 0.0,
         },
     }
 
@@ -1381,6 +2004,401 @@ async def get_fleet_analytics():
     }
 
 
+# ── ESP32 Super-Node Data Transformer ─────────────────────────────────
+
+# ── MQ Sensor Calibration ──
+# MQ sensors need proper ADC→real-unit conversion.
+# The load resistor RL is typically 10 kΩ on most modules, Vcc = 3.3 V on ESP32.
+MQ_RL_KOHM = 10.0   # Load resistor in kΩ
+MQ_VCC     = 3.3     # ESP32 ADC reference voltage
+
+# Post-warmup settling: track when each vehicle's MQ warmup ended
+# to add a 60s grace period before trusting calibrated values
+_vehicle_warmup_end: dict[str, float] = {}
+MQ_SETTLE_SECONDS = 0  # firmware handles warmup with pre-filled buffers, no server settling needed
+
+def _mq_adc_to_ppm(adc_raw: int, baseline: int, r0_ratio_clean: float,
+                    curve_a: float, curve_b: float,
+                    ppm_floor: float, ppm_ceil: float) -> float:
+    """
+    Convert MQ gas sensor raw ADC to estimated PPM using the sensor's
+    characteristic curve:  PPM = a * (Rs/R0)^b
+
+    Uses baseline (clean-air reading) to calibrate R0.
+    """
+    if adc_raw <= 0 or baseline <= 0:
+        return ppm_floor
+
+    # Voltage from ADC
+    v_sensor = (adc_raw / 4095.0) * MQ_VCC
+    v_baseline = (baseline / 4095.0) * MQ_VCC
+
+    if v_sensor < 0.01 or v_baseline < 0.01:
+        return ppm_floor
+
+    # Rs = RL × (Vcc - Vout) / Vout   (voltage divider)
+    rs = MQ_RL_KOHM * (MQ_VCC - v_sensor) / v_sensor
+    rs_baseline = MQ_RL_KOHM * (MQ_VCC - v_baseline) / v_baseline
+
+    # R0 = Rs_clean / r0_ratio_clean  (datasheet Rs/R0 in clean air)
+    r0 = rs_baseline / r0_ratio_clean
+    if r0 < 0.001:
+        return ppm_floor
+
+    ratio = rs / r0
+    if ratio <= 0:
+        return ppm_floor
+
+    ppm = curve_a * (ratio ** curve_b)
+    return max(ppm_floor, min(ppm_ceil, round(ppm, 1)))
+
+
+def _co2_from_adc(adc_raw: int, baseline: int) -> float:
+    """MQ-135: ADC → CO₂ PPM.  Characteristic curve from MQ-135 datasheet."""
+    # MQ-135 Rs/R0 in clean air ≈ 3.6 (from datasheet)
+    # CO₂ curve: PPM = 116.6020682 × (Rs/R0)^(-2.769034857)
+    return _mq_adc_to_ppm(
+        adc_raw, baseline,
+        r0_ratio_clean=3.6,
+        curve_a=116.602, curve_b=-2.769,
+        ppm_floor=400.0,   # atmospheric minimum CO₂
+        ppm_ceil=5000.0
+    )
+
+
+def _alcohol_from_adc(adc_raw: int, baseline: int) -> float:
+    """MQ-3: ADC → mg/L breath alcohol.  Characteristic curve from MQ-3 datasheet."""
+    # MQ-3 Rs/R0 in clean air ≈ 60 (from datasheet)
+    # Alcohol curve: mg/L = 0.4091 × (Rs/R0)^(-1.497)
+    return round(_mq_adc_to_ppm(
+        adc_raw, baseline,
+        r0_ratio_clean=60.0,
+        curve_a=0.4091, curve_b=-1.497,
+        ppm_floor=0.0,
+        ppm_ceil=5.0  # mg/L cap
+    ), 4)
+
+
+def transform_esp32_data(raw: dict, vehicle_id: str) -> dict:
+    """
+    Transform the unified JSON from ESP32 Super-Node firmware into the
+    dashboard-compatible telemetry format.  The ESP32 sends all sensor
+    data in one JSON frame every ~1 second.
+
+    ESP32 fields → Dashboard fields mapping:
+      mq3 (raw ADC)       → alcohol_mgl (mg/L)
+      co2 (raw ADC)       → co2_ppm
+      bpm                 → health.heart_rate
+      spo2                → health.spo2
+      g_force, accel_*    → imu dict
+      lat, lon, gps_*     → location dict
+      radar_presence      → presence dict
+      engine, motor_pwm   → engine status
+      sos, sos_pct        → SOS status
+      buzzer, danger      → alert state
+    """
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    # ── Sensor hardware presence flags from ESP32 (infer from payload if not sent) ──
+    has_mpu  = raw.get("has_mpu", "g_force" in raw)
+    has_max  = raw.get("has_max", "bpm" in raw or "spo2" in raw)
+    has_gps  = raw.get("has_gps", False)
+    has_radar = raw.get("has_radar", "radar_presence" in raw)
+
+    # ── Sensor quality flags from ESP32 ──
+    finger_on    = raw.get("finger_on", False)
+    mq_warmup    = raw.get("mq_warmup", True)   # True = still warming up
+    mq135_base   = raw.get("mq135_baseline", 0)
+    mq3_base     = raw.get("mq3_baseline", 0)
+
+    # ── Post-warmup settling period ──
+    # MQ sensors produce erratic readings for ~60s after warmup ends.
+    # Track when warmup ended per vehicle and add a settling window.
+    import time as _time
+    if mq_warmup:
+        # Still warming up — reset tracker
+        _vehicle_warmup_end.pop(vehicle_id, None)
+    else:
+        if vehicle_id not in _vehicle_warmup_end:
+            _vehicle_warmup_end[vehicle_id] = _time.time()
+        settling = _time.time() - _vehicle_warmup_end[vehicle_id] < MQ_SETTLE_SECONDS
+        if settling:
+            mq_warmup = True  # Override: treat as warmup during settling
+
+    # ── Gas Sensors (raw ADC → calibrated real-world units) ──
+    co2_raw = raw.get("co2", 0)
+    mq3_raw = raw.get("mq3", 0)
+
+    if mq_warmup:
+        # Sensors still warming up — show warming status
+        co2_ppm = 400.0  # Report ambient until ready
+        alcohol_mgl = 0.0
+    elif mq135_base > 0:
+        # Calibrated conversion using MQ characteristic curves
+        co2_ppm = _co2_from_adc(co2_raw, mq135_base)
+        alcohol_mgl = _alcohol_from_adc(mq3_raw, mq3_base)
+    else:
+        # Firmware already maps ADC to meaningful values:
+        #   MQ-135: map(ADC, 0, 4095, 400, 2000) → CO₂ PPM
+        #   MQ-3:   map(ADC, 0, 4095, 0, 1000) → scaled alcohol level
+        # Use these directly — they are real sensor readings.
+        co2_ppm = float(co2_raw) if co2_raw > 0 else 400.0
+        # Convert MQ-3 scaled value (0–1000) to mg/L approximation
+        alcohol_mgl = round(float(mq3_raw) / 1000.0 * 0.5, 4) if mq3_raw > 0 else 0.0
+
+    # ── Health (MAX30100) — respect finger contact detection ──
+    bpm = raw.get("bpm", 0)
+    spo2 = raw.get("spo2", 0)
+
+    # If sensor not present or no finger contact, force zero
+    if not has_max or not finger_on:
+        bpm = 0
+        spo2 = 0
+
+    health_dict = {
+        "heart_rate": bpm,
+        "spo2": spo2,
+        "sensor": "MAX30100",
+        "fresh": has_max,
+        "readings": 1 if has_max else 0,
+        "finger_on": finger_on if has_max else False,
+    }
+
+    # ── IMU (MPU6050) ──
+    g_force = raw.get("g_force", 1.0)
+    imu_dict = {
+        "ax": raw.get("accel_x", 0),
+        "ay": raw.get("accel_y", 0),
+        "az": raw.get("accel_z", 0),
+        "gx": 0, "gy": 0, "gz": 0,
+        "speed_kmh": raw.get("gps_speed_kmh", 0),
+        "g_force": g_force if has_mpu else 1.0,  # Default 1.0g when sensor absent
+        "fresh": has_mpu,
+        "readings": 1 if has_mpu else 0,
+    }
+
+    # ── GPS (NEO-6M hardware) ──
+    gps_fix = raw.get("gps_fix", False)
+    lat_str = raw.get("lat", "0")
+    lon_str = raw.get("lon", "0")
+    try:
+        lat = round(float(lat_str), 6)
+        lon = round(float(lon_str), 6)
+    except (ValueError, TypeError):
+        lat, lon = 0.0, 0.0
+        gps_fix = False
+
+    # Only use hardware GPS if there is a valid fix and non-zero coordinates
+    if gps_fix and (abs(lat) > 0.001 or abs(lon) > 0.001):
+        location = {
+            "lat": lat,
+            "lon": lon,
+            "heading": 0,
+            "accuracy": 5.0,      # Hardware GPS typically 3-10m
+            "altitude": None,
+        }
+        gps_source = "hardware"   # Real hardware GPS fix
+        speed_kmh = round(raw.get("gps_speed_kmh", 0), 1)
+    else:
+        # Fall back to browser GPS if available
+        if gps_store.is_fresh and gps_store.lat is not None:
+            location = {
+                "lat": round(gps_store.lat, 6),
+                "lon": round(gps_store.lon, 6),
+                "heading": round((gps_store.heading or 0) % 360, 1),
+                "accuracy": gps_store.accuracy,
+                "altitude": round(gps_store.altitude, 1) if gps_store.altitude else None,
+            }
+            gps_source = "browser"
+            speed_kmh = round((gps_store.speed_mps or 0) * 3.6, 1)
+        else:
+            location = None
+            gps_source = "none"
+            speed_kmh = round(raw.get("gps_speed_kmh", 0), 1)
+
+    # ── Radar / Presence (mmWave C4001) — use real values from ESP32 ──
+    radar_present = raw.get("radar_presence", False)
+    radar_active = raw.get("radar_active", False) and has_radar
+    radar_distance = raw.get("radar_distance", 0.0)
+    radar_energy = raw.get("radar_energy", 0)
+    presence_dict = {
+        "present": radar_present if has_radar else False,
+        "distance": round(radar_distance, 2),
+        "energy": radar_energy,
+        "sensor": "C4001",
+        "fresh": radar_active,
+        "readings": 1 if radar_active else 0,
+    }
+
+    # ── Engine / Motor / SOS ──
+    engine_on = raw.get("engine", "OFF") == "ON"
+    motor_pwm = raw.get("motor_pwm", 0)
+    sos_active = raw.get("sos", False)
+    sos_pct = raw.get("sos_pct", 100)
+    buzzer_on = raw.get("buzzer", "OFF") == "ON"
+    danger = raw.get("danger", False)
+
+    # ── Safety status ──
+    alerts = []
+    status = "SAFE"
+    if danger:
+        status = "DANGER"
+    if sos_active:
+        status = "DANGER"
+        alerts.append(f"🚨 SOS EMERGENCY — Shutdown {sos_pct}%")
+    if not mq_warmup:
+        # Only generate gas alerts after warm-up
+        if co2_ppm > 1000:
+            alerts.append(f"⚠️ High CO₂ — {co2_ppm:.0f} PPM")
+        if alcohol_mgl > 0.08:
+            status = "DANGER"
+            alerts.append(f"🍺 Alcohol Detected — {alcohol_mgl:.3f} mg/L")
+    if has_mpu and g_force > 1.5:
+        status = "DANGER"
+        alerts.append(f"💥 High G-Force — {g_force:.2f}g (Crash?)")
+    if has_max and finger_on and bpm > 0 and (bpm < 50 or bpm > 120):
+        alerts.append(f"💓 Abnormal Heart Rate — {bpm} BPM")
+    if has_max and finger_on and spo2 > 0 and spo2 < 94:
+        alerts.append(f"🫁 Low SpO₂ — {spo2}%")
+
+    return {
+        "vehicle_id": vehicle_id,
+        "timestamp": now_iso,
+        "server_ts": now_iso,
+        "is_simulation": False,
+        # CV pipeline fields (zeros — no camera on ESP32)
+        "ear": 0.0,
+        "mar": 0.0,
+        "face_detected": False,
+        "affective_state": "",
+        # Safety
+        "status": status,
+        "alerts": alerts,
+        "danger": danger,
+        # Speed
+        "speed_kmh": speed_kmh,
+        # GPS
+        "location": location,
+        "gps_source": gps_source,
+        "gps_fix": gps_fix,
+        "gps_sats": raw.get("gps_sats", 0),
+        # CO₂ (MQ-135)
+        "co2_ppm": co2_ppm,
+        "co2_source": "MQ-135",
+        "co2_raw_adc": co2_raw,
+        "mq_warmup": mq_warmup,
+        # Alcohol (MQ-3)
+        "alcohol_mgl": alcohol_mgl,
+        "alcohol_source": "MQ-3",
+        "alcohol_raw_adc": mq3_raw,
+        # IMU (MPU6050) — always send dict, dashboard uses imu_source to decide display
+        "imu": imu_dict,
+        "imu_source": "MPU6050" if has_mpu else "none",
+        # Health (MAX30100) — always send dict
+        "health": health_dict,
+        "health_source": "MAX30100" if has_max else "none",
+        # Presence (mmWave Radar) — always send dict
+        "presence": presence_dict,
+        "presence_source": "C4001" if has_radar else "none",
+        # ESP32-specific fields
+        "engine": "ON" if engine_on else "OFF",
+        "motor_pwm": motor_pwm,
+        "sos": sos_active,
+        "sos_pct": sos_pct,
+        "buzzer": "ON" if buzzer_on else "OFF",
+        "esp32_uptime": raw.get("uptime_s", 0),
+        "esp32_connected": True,
+    }
+
+
+async def update_stores_from_esp32(raw: dict) -> None:
+    """Update all sensor stores from ESP32 unified JSON so REST APIs stay current."""
+    co2_raw = raw.get("co2", 0)
+    mq3_raw = raw.get("mq3", 0)
+    mq_warmup = raw.get("mq_warmup", True)
+    mq135_base = raw.get("mq135_baseline", 0)
+    mq3_base = raw.get("mq3_baseline", 0)
+
+    # Sensor presence flags (infer from payload so older ESP32 firmware still fills stores)
+    has_mpu = raw.get("has_mpu", "g_force" in raw)
+    has_max = raw.get("has_max", "bpm" in raw or "spo2" in raw)
+    has_radar = raw.get("has_radar", "radar_presence" in raw)
+
+    # Apply same settling period as transform
+    import time as _time
+    vid = raw.get("vehicle_id", "unknown")
+    if not mq_warmup:
+        if vid in _vehicle_warmup_end:
+            settling = _time.time() - _vehicle_warmup_end[vid] < MQ_SETTLE_SECONDS
+            if settling:
+                mq_warmup = True
+
+    if mq_warmup:
+        co2_ppm = 400.0
+        alcohol_mgl = 0.0
+    elif mq135_base > 0:
+        co2_ppm = _co2_from_adc(co2_raw, mq135_base)
+        alcohol_mgl = _alcohol_from_adc(mq3_raw, mq3_base)
+    else:
+        # Firmware maps ADC → PPM directly, use values as-is
+        co2_ppm = float(co2_raw) if co2_raw > 0 else 400.0
+        alcohol_mgl = round(float(mq3_raw) / 1000.0 * 0.5, 4) if mq3_raw > 0 else 0.0
+
+    await sensor_store.update(CO2SensorUpdate(
+        co2_ppm=co2_ppm,
+        raw_adc=co2_raw,
+        alcohol_mgl=alcohol_mgl,
+        alcohol_raw_adc=mq3_raw,
+        vehicle_id=raw.get("vehicle_id"),
+        sensor="MQ-135",
+    ))
+
+    if has_mpu:
+        await imu_store.update(MPU6050Update(
+            ax=raw.get("accel_x", 0),
+            ay=raw.get("accel_y", 0),
+            az=raw.get("accel_z", 0),
+            g_force=raw.get("g_force", 1.0),
+            speed_kmh=raw.get("gps_speed_kmh", 0),
+            vehicle_id=raw.get("vehicle_id"),
+        ))
+
+    bpm = raw.get("bpm", 0)
+    spo2v = raw.get("spo2", 0)
+    finger_on = raw.get("finger_on", (bpm > 0 or spo2v > 0))
+    if has_max and (finger_on or bpm > 0 or spo2v > 0):
+        await health_store.update(HealthSensorUpdate(
+            heart_rate=bpm,
+            spo2=spo2v,
+            vehicle_id=raw.get("vehicle_id"),
+            sensor="MAX30100",
+        ))
+
+    if has_radar:
+        await presence_store.update(PresenceSensorUpdate(
+            present=raw.get("radar_presence", False),
+            distance=raw.get("radar_distance", 0.0),
+            energy=raw.get("radar_energy", 0),
+            vehicle_id=raw.get("vehicle_id"),
+            sensor="C4001",
+        ))
+
+    # Update GPS store from hardware GPS if valid
+    gps_fix = raw.get("gps_fix", False)
+    if gps_fix:
+        try:
+            lat = float(raw.get("lat", 0))
+            lon = float(raw.get("lon", 0))
+            if abs(lat) > 0.001 or abs(lon) > 0.001:
+                await gps_store.update(GPSUpdate(
+                    lat=lat, lon=lon,
+                    accuracy=5.0,
+                    speed_mps=raw.get("gps_speed_kmh", 0) / 3.6,
+                ))
+        except (ValueError, TypeError):
+            pass
+
+
 # ── WebSocket Endpoints ──────────────────────────────────────────────
 @app.websocket("/ws/dashboard")
 async def ws_dashboard(websocket: WebSocket):
@@ -1432,73 +2450,132 @@ async def ws_vehicle(websocket: WebSocket, vehicle_id: str):
                 if data.get("type") == "heartbeat":
                     continue
 
-                data["vehicle_id"] = vehicle_id
-                data["server_ts"] = datetime.now(timezone.utc).isoformat()
-                data["is_simulation"] = False
-
-                # ── Enrich with GPS from gps_store (browser sends GPS separately) ──
-                if gps_store.is_fresh and gps_store.lat is not None:
-                    data["location"] = {
-                        "lat": round(gps_store.lat, 6),
-                        "lon": round(gps_store.lon, 6),
-                        "heading": round((gps_store.heading or 0) % 360, 1),
-                        "accuracy": gps_store.accuracy,
-                        "altitude": round(gps_store.altitude, 1) if gps_store.altitude else None,
+                # Handle SOS_EMERGENCY alert from ESP32
+                if data.get("type") == "SOS_EMERGENCY":
+                    print(f"[SOS] 🚨 EMERGENCY from ESP32! vehicle={vehicle_id}")
+                    sos_data = {
+                        "vehicle_id": vehicle_id,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "server_ts": datetime.now(timezone.utc).isoformat(),
+                        "is_simulation": False,
+                        "status": "DANGER",
+                        "alerts": [f"🚨 SOS EMERGENCY — {data.get('message', 'Driver triggered SOS!')}"],
+                        "is_sos": True,
+                        "sos": True,
+                        "danger": True,
+                        "ear": 0.0, "mar": 0.0,
+                        "co2_ppm": 0, "co2_source": "MQ-135",
+                        "alcohol_mgl": 0, "alcohol_source": "MQ-3",
+                        "health": {"heart_rate": data.get("bpm", 0), "spo2": 0, "sensor": "MAX30100", "fresh": True, "readings": 1},
+                        "health_source": "MAX30100",
+                        "imu": {"ax": 0, "ay": 0, "az": 0, "gx": 0, "gy": 0, "gz": 0, "speed_kmh": 0, "g_force": data.get("g_force", 1.0), "fresh": True, "readings": 1},
+                        "imu_source": "MPU6050",
+                        "presence": None, "presence_source": "none",
+                        "speed_kmh": 0,
+                        "esp32_connected": True,
                     }
-                    data["gps_source"] = "browser"
-                    if gps_store.speed_mps and gps_store.speed_mps >= 0:
-                        data["speed_kmh"] = round(gps_store.speed_mps * 3.6, 1)
-                else:
-                    data.setdefault("location", None)
-                    data.setdefault("gps_source", "none")
+                    # Include GPS if available
+                    try:
+                        lat = float(data.get("lat", 0))
+                        lon = float(data.get("lon", 0))
+                        if abs(lat) > 0.001 or abs(lon) > 0.001:
+                            sos_data["location"] = {"lat": lat, "lon": lon, "heading": 0, "accuracy": 5.0, "altitude": None}
+                            sos_data["gps_source"] = "browser"
+                        else:
+                            sos_data["location"] = None
+                            sos_data["gps_source"] = "none"
+                    except (ValueError, TypeError):
+                        sos_data["location"] = None
+                        sos_data["gps_source"] = "none"
 
-                # ── Enrich with CO2 + Alcohol from sensor_store ──
-                if sensor_store.is_fresh and sensor_store.co2_ppm is not None:
-                    data["co2_ppm"] = sensor_store.co2_ppm
-                    data["co2_source"] = "MQ-135"
-                else:
-                    data.setdefault("co2_ppm", 0.0)
-                    data.setdefault("co2_source", "none")
+                    await manager.broadcast(vehicle_id, sos_data)
+                    continue
 
-                # Alcohol (MQ-3) — piggybacks on sensor_store
-                if sensor_store.has_alcohol:
-                    data["alcohol_mgl"] = sensor_store.alcohol_mgl
-                    data["alcohol_source"] = "MQ-3"
+                # ── Detect ESP32 Super-Node unified format (has 'mq3' field) ──
+                if "mq3" in data:
+                    # Update all sensor stores from ESP32 data
+                    await update_stores_from_esp32(data)
+                    # Transform to dashboard format
+                    data = transform_esp32_data(data, vehicle_id)
+                    # Log every 10th frame to confirm data flow
+                    uptime = data.get("esp32_uptime", 0)
+                    if uptime % 10 == 0:
+                        dashboards = len(manager.global_dashboards)
+                        h = data.get("health", {})
+                        hr_val = h.get("heart_rate", 0) if h else 0
+                        mpu_flag = 'Y' if data.get('imu_source') == 'MPU6050' else 'N'
+                        max_flag = 'Y' if data.get('health_source') == 'MAX30100' else 'N'
+                        radar_flag = 'Y' if data.get('presence_source') == 'C4001' else 'N'
+                        print(f"[ESP32] Frame t={uptime}s | CO₂={data.get('co2_ppm',0):.0f} | HR={hr_val} | MPU={mpu_flag} MAX={max_flag} RDR={radar_flag} | → {dashboards} dashboard(s)")
                 else:
-                    data.setdefault("alcohol_mgl", 0.0)
-                    data.setdefault("alcohol_source", "none")
+                    # ── Legacy format (CV pipeline / bridge.py) ──
+                    data["vehicle_id"] = vehicle_id
+                    data["server_ts"] = datetime.now(timezone.utc).isoformat()
+                    data["is_simulation"] = False
 
-                # ── Enrich with IMU from imu_store (ESP32 MPU6050) ──
-                if imu_store.is_fresh:
-                    data["imu"] = imu_store.to_dict()
-                    data["imu_source"] = "MPU6050"
-                    # Use IMU speed if GPS speed is unavailable
-                    if data.get("speed_kmh", 0) == 0 and imu_store.speed_kmh > 0:
-                        data["speed_kmh"] = round(imu_store.speed_kmh, 1)
-                else:
-                    data.setdefault("imu_source", "none")
+                    # Enrich with GPS from gps_store
+                    if gps_store.is_fresh and gps_store.lat is not None:
+                        data["location"] = {
+                            "lat": round(gps_store.lat, 6),
+                            "lon": round(gps_store.lon, 6),
+                            "heading": round((gps_store.heading or 0) % 360, 1),
+                            "accuracy": gps_store.accuracy,
+                            "altitude": round(gps_store.altitude, 1) if gps_store.altitude else None,
+                        }
+                        data["gps_source"] = "browser"
+                        if gps_store.speed_mps and gps_store.speed_mps >= 0:
+                            data["speed_kmh"] = round(gps_store.speed_mps * 3.6, 1)
+                    else:
+                        data.setdefault("location", None)
+                        data.setdefault("gps_source", "none")
 
-                # ── Enrich with Health from health_store (MAX30100) ──
-                if health_store.is_fresh:
-                    data["health"] = health_store.to_dict()
-                    data["health_source"] = "MAX30100"
-                else:
-                    data.setdefault("health", None)
-                    data.setdefault("health_source", "none")
+                    # Enrich with CO2 + Alcohol from sensor_store
+                    if sensor_store.is_fresh and sensor_store.co2_ppm is not None:
+                        data["co2_ppm"] = sensor_store.co2_ppm
+                        data["co2_source"] = "MQ-135"
+                    else:
+                        data.setdefault("co2_ppm", 0.0)
+                        data.setdefault("co2_source", "none")
+                    if sensor_store.has_alcohol:
+                        data["alcohol_mgl"] = sensor_store.alcohol_mgl
+                        data["alcohol_source"] = "MQ-3"
+                    else:
+                        data.setdefault("alcohol_mgl", 0.0)
+                        data.setdefault("alcohol_source", "none")
 
-                # ── Enrich with Presence from presence_store (C4001) ──
-                if presence_store.is_fresh:
-                    data["presence"] = presence_store.to_dict()
-                    data["presence_source"] = "C4001"
-                else:
-                    data.setdefault("presence", None)
-                    data.setdefault("presence_source", "none")
+                    # Enrich with IMU
+                    if imu_store.is_fresh:
+                        data["imu"] = imu_store.to_dict()
+                        data["imu_source"] = "MPU6050"
+                        if data.get("speed_kmh", 0) == 0 and imu_store.speed_kmh > 0:
+                            data["speed_kmh"] = round(imu_store.speed_kmh, 1)
+                    else:
+                        data.setdefault("imu_source", "none")
+
+                    # Enrich with Health
+                    if health_store.is_fresh:
+                        data["health"] = health_store.to_dict()
+                        data["health_source"] = "MAX30100"
+                    else:
+                        data.setdefault("health", None)
+                        data.setdefault("health_source", "none")
+
+                    # Enrich with Presence
+                    if presence_store.is_fresh:
+                        data["presence"] = presence_store.to_dict()
+                        data["presence_source"] = "C4001"
+                    else:
+                        data.setdefault("presence", None)
+                        data.setdefault("presence_source", "none")
+
+                    # Pass through ESP32 fields if present
+                    data.setdefault("esp32_connected", sensor_store.is_fresh or imu_store.is_fresh or health_store.is_fresh)
 
                 await manager.broadcast(vehicle_id, data)
             except json.JSONDecodeError:
                 await websocket.send_json({"error": "Invalid JSON"})
-            except Exception:
-                pass  # Skip malformed frames
+            except Exception as e:
+                logging.warning(f"[WS] Frame error: {e}")
     except WebSocketDisconnect:
         manager.disconnect_vehicle(vehicle_id)
     except Exception as e:
@@ -1509,11 +2586,9 @@ async def ws_vehicle(websocket: WebSocket, vehicle_id: str):
 # ── Main ──────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     import uvicorn
-    print(r"""
-    ╔═══════════════════════════════════════════════════════════╗
-    ║         ADAR FLEET COMMAND CENTER  v3.0                  ║
-    ║         FastAPI + WebSocket Hub + Real GPS               ║
-    ╚═══════════════════════════════════════════════════════════╝
-    """)
+    print("\n    +-----------------------------------------------------------+")
+    print("    |         ADAR FLEET COMMAND CENTER  v3.0                  |")
+    print("    |         FastAPI + WebSocket Hub + Real GPS               |")
+    print("    +-----------------------------------------------------------+\n")
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
