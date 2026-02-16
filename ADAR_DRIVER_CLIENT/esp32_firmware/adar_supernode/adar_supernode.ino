@@ -25,10 +25,10 @@
 const char* WIFI_SSID     = "Aditya";
 const char* WIFI_PASSWORD = "Aditya09";
 
-// RENDER CLOUD SETTINGS (Render uses HTTPS → use WSS on 443)
-#define USE_WSS_FOR_RENDER  1   // 1 = wss:// port 443 (production), 0 = ws:// port 80 (local)
-const char* WS_HOST = "adar-fleet-command-centre.onrender.com";
-const int   WS_PORT = USE_WSS_FOR_RENDER ? 443 : 80;
+// SERVER SETTINGS — toggle between local dev and Render cloud
+#define USE_WSS_FOR_RENDER  0   // 1 = wss:// port 443 (production), 0 = ws:// (local)
+const char* WS_HOST = "192.168.159.205";    // LOCAL laptop IP
+const int   WS_PORT = 8000;                 // LOCAL Fleet Server port
 const char* WS_PATH = "/ws/vehicle/VH-7842";
 const char* VEHICLE_ID = "VH-7842";
 
